@@ -1,28 +1,39 @@
 {
-  "name": "@quasiris/docusaurus-qsc-chatbot-ui",
-  "version": "1.0.2",
-  "description": "A Docusaurus plugin that injects a Chatbot UI with WS/REST support",
-  "main": "index.js",
+  "name": "@quasiris/qsc-chatbot-ui",
+  "version": "1.1.2",
+  "description": "A ReactJs plugin that injects a Chatbot UI with WS/REST support",
+  "main": "lib/index.js",
+  "module": "lib/index.esm.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+     "build": "babel src --out-dir lib --extensions \".js,.jsx,.ts,.tsx\" --copy-files",
+    "prepublishOnly": "npm run build"
   },
   "publishConfig": {
     "access": "public"
   },
-  "files": [
-    "src"
+ "files": [
+    "lib",
+    "qsc-chatbot.js"
   ],
   "keywords": [
     "docusaurus",
     "plugin",
+    "webComponent",
     "chatbot",
     "react"
   ],
   "peerDependencies": {
+    "@docusaurus/core": "^3.x",
     "react": "^17.x || ^18.x || ^19.x",
-    "react-dom": "^17.x || ^18.x || ^19.x",
-    "@docusaurus/core": "^3.x"
+    "react-dom": "^17.x || ^18.x || ^19.x"
   },
   "author": "Quasiris Team",
-  "type": "commonjs"
+  "type": "commonjs",
+  "devDependencies": {
+    "@babel/cli": "^7.27.2",
+    "@babel/core": "^7.27.4",
+    "@babel/preset-env": "^7.27.2",
+    "@babel/preset-react": "^7.27.1",
+    "@babel/preset-typescript": "^7.27.1"
+  }
 }

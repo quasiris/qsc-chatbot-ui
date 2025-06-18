@@ -1,0 +1,293 @@
+.chatbotContainer {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1000;
+}
+
+.toggleButton {
+  width: 60px;
+  height: 60px;
+  background-color: #208ed6;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  transition: transform 0.3s ease;
+}
+
+.toggleButton:hover {
+  transform: scale(1.05);
+}
+
+.toggleButton.hidden {
+  display: none;
+}
+
+.chatWindow {
+  width: 350px;
+  height: 450px;
+  background-color: white;
+  border-radius: 10px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.header {
+  background-color: #2563eb;
+  color: white;
+  padding: 12px 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.messages {
+  flex: 1;
+  padding: 15px;
+  overflow-y: auto;
+  background-color: #f9fafb;
+}
+
+.message {
+  margin-bottom: 15px;
+  max-width: 80%;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.messageContent {
+  padding: 10px 15px;
+  border-radius: 18px;
+}
+
+.messageSender {
+  font-size: 0.8rem;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.messageText {
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.userMessage {
+  margin-left: auto;
+}
+
+.userMessage .messageContent {
+  background-color: #2563eb;
+  color: white;
+  border-bottom-right-radius: 5px;
+}
+
+.botMessage {
+  margin-right: auto;
+}
+
+.botMessage .messageContent {
+  background-color: #e5e7eb;
+  color: #1f2937;
+  border-bottom-left-radius: 5px;
+}
+
+.inputArea {
+  display: flex;
+  padding: 12px;
+  border-top: 1px solid #e5e7eb;
+  background-color: white;
+}
+
+.input {
+  flex: 1;
+  padding: 10px 15px;
+  border: 1px solid #d1d5db;
+  border-radius: 20px;
+  margin-right: 10px;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.3s;
+}
+
+.input:focus {
+  border-color: #2563eb;
+}
+
+.sendButton {
+  padding: 10px 20px;
+  background-color: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.3s;
+}
+
+.sendButton:hover {
+  background-color: #1d4ed8;
+}
+
+/* Responsive styles */
+@media (max-width: 768px) {
+  .chatbotContainer {
+    bottom: 10px;
+    right: 10px;
+  }
+  
+  .chatWindow {
+    width: 300px;
+    height: 400px;
+  }
+}
+
+@media (max-width: 480px) {
+  .chatWindow {
+    width: calc(100vw - 40px);
+    height: 70vh;
+    right: 20px;
+    bottom: 80px;
+  }
+}
+/* ... existing styles ... */
+
+/* Connection status */
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.headerRight {
+  display: flex;
+  gap: 8px;
+}
+
+.connectionStatus {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background-color: #e5e7eb;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.connectionStatus.connecting .statusDot {
+  background-color: #f59e0b;
+}
+
+.connectionStatus.connected .statusDot {
+  background-color: #10b981;
+}
+
+.connectionStatus.error .statusDot {
+  background-color: #ef4444;
+}
+
+/* API switch button */
+.apiSwitchButton {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.apiSwitchButton:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* System messages */
+.systemMessage .messageContent {
+  background-color: #fef3c7;
+  color: #92400e;
+  border-radius: 8px;
+  border-left: 3px solid #f59e0b;
+}
+
+/* Broadcast notification */
+.broadcastNotification {
+  position: fixed;
+  bottom: 90px;
+  right: 20px;
+  background-color: #fef3c7;
+  color: #92400e;
+  padding: 12px 16px;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  z-index: 1001;
+  max-width: 300px;
+  transition: opacity 0.3s ease;
+}
+
+.broadcastIndicator {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: #ef4444;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 0.7rem;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+/* Disabled state */
+.input:disabled,
+.sendButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+@keyframes smoothJump {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+.jumpLoop {
+  animation: smoothJump 1s ease-in-out infinite;
+}

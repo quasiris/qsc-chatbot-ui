@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QSC Chatbot Test</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem;
+      color: #343a40;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 3rem;
+      max-width: 800px;
+    }
+    
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      background: linear-gradient(90deg, #0078d4 0%, #5c2d91 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      margin-bottom: 1rem;
+    }
+    
+    .subtitle {
+      font-size: 1.2rem;
+      color: #6c757d;
+      margin-bottom: 2rem;
+    }
+    
+    .container {
+      width: 100%;
+      max-width: 1200px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    
+    .demo-section {
+      background: white;
+      border-radius: 16px;
+      padding: 2.5rem;
+      box-shadow: 0 15px 50px rgba(0, 0, 0, 0.1);
+      width: 100%;
+      max-width: 1000px;
+      border: 1px solid #e9ecef;
+      margin-bottom: 2rem;
+    }
+    
+    .demo-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 1.5rem;
+      font-size: 1.5rem;
+      color: #212529;
+      font-weight: 600;
+    }
+    
+    .demo-container {
+      display: flex;
+      gap: 2rem;
+      flex-wrap: wrap;
+    }
+    
+    .demo-description {
+      flex: 1;
+      min-width: 300px;
+    }
+    
+    .demo-description p {
+      color: #495057;
+      line-height: 1.7;
+      margin-bottom: 1.5rem;
+    }
+    
+    .demo-box {
+      flex: 1;
+      min-width: 300px;
+      height: 500px;
+      background: #f8f9fa;
+      border-radius: 12px;
+      border: 1px solid #e9ecef;
+      position: relative;
+      overflow: hidden;
+      box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.03);
+    }
+    
+    .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 3rem;
+      margin-bottom: 1rem;
+      width: 100%;
+      max-width: 1000px;
+    }
+    
+    .code-container {
+      background: #1e1e1e;
+      border-radius: 12px;
+      padding: 1.5rem;
+      overflow-x: auto;
+      margin-bottom: 3rem;
+      width: 100%;
+      max-width: 1000px;
+    }
+    
+    pre {
+      color: #d4d4d4;
+      font-family: 'Fira Code', monospace;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    
+    .token.tag {
+      color: #569cd6;
+    }
+    
+    .token.attr-name {
+      color: #9cdcfe;
+    }
+    
+    .token.attr-value {
+      color: #ce9178;
+    }
+    
+    .footer {
+      text-align: center;
+      margin-top: 2rem;
+      color: #6c757d;
+      font-size: 0.9rem;
+    }
+    
+    @media (max-width: 768px) {
+      .demo-container {
+        flex-direction: column;
+      }
+      
+      .demo-box {
+        height: 400px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>QSC Chatbot Component</h1>
+    <p class="subtitle">Professional, modern chatbot interface with real-time communication</p>
+  </div>
+  
+  <div class="container">
+    
+    <div class="demo-section">
+      <div class="demo-title">Chatbot Demo</div>
+      <div class="demo-container">
+        <div class="demo-description">
+          <p>This professional chatbot features:</p>
+          <ul style="padding-left: 1.5rem; margin-bottom: 1.5rem; color: #495057; line-height: 1.7;">
+            <li>Modern, clean UI with smooth animations</li>
+            <li>Real-time WebSocket communication</li>
+            <li>Broadcast notifications when chat is closed</li>
+            <li>Connection status indicators</li>
+            <li>Message history with timestamps</li>
+            <li>Responsive design for all devices</li>
+          </ul>
+          <p>Try sending a message or wait for a broadcast notification to appear!</p>
+        </div>
+        <div class="demo-box">
+          <qsc-chatbot
+            ws-url="ws://localhost:8080/chat"
+            header-title="QSC Chatbot"
+            assistant-name="QSC Assistant"
+          ></qsc-chatbot>
+        </div>
+      </div>
+    </div>
+    
+    <div class="code-header">
+      <h3>Implementation Code</h3>
+    </div>
+    <div class="code-container">
+      <pre><code>&lt;qsc-chatbot
+  ws-url="wss://your-websocket-server"
+  header-title="Chat Assistant"
+  assistant-name="AI Assistant"
+  logo-path="./path/to/logo.png"&gt;
+&lt;/qsc-chatbot&gt;</code></pre>
+    </div>
+  </div>
+
+  <div class="footer">
+    QSC Chatbot Component | Qsc Web Interface
+  </div>
+
+  <script src="./qsc-chatbot.js"></script>
+</body>
+</html>
