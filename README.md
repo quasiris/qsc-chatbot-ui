@@ -29,6 +29,21 @@ plugins: [
   ],
 ],
 ```
+## Example Usage in Html
+
+Add the plugin to your `index.html`:
+
+```html
+  <script src="./qsc-chatbot.js"></script>
+  <body>
+      <qsc-chatbot
+        ws-url="ws://localhost:8080/chat"
+        header-title="QSC Chatbot"
+        assistant-name="QSC Assistant"
+      >
+      </qsc-chatbot>
+    </body>
+```
 
 - `wsUrl` (string, required): WebSocket endpoint for the chatbot backend.
 - `headerTitle` (string, optional): Title displayed in the chatbot header.
