@@ -63,8 +63,8 @@ If the `logoPath` is invalid or the image cannot be loaded, the plugin will auto
 ---
 
 ## Screenshots
-![QSC Chatbot UI](https://github.com/quasiris/qsc-chatbot-ui/raw/main/assets/QscChatBot.png)
-![QSC Chatbot UI 01](https://github.com/quasiris/qsc-chatbot-ui/raw/main/assets/QscChatBot01.png)
+![QSC Chatbot UI](https://github.com/quasiris/qsc-chatbot-ui/blob/main/assets/QscChatbot.png)
+![QSC Chatbot UI 01](https://github.com/quasiris/qsc-chatbot-ui/blob/main/assets/QscChatbot01.png)
 
 ---
 
