@@ -1,15 +1,34 @@
-# @quasiris/qsc-chatbot-ui
+# QSC Chatbot UI
 
-A Docusaurus plugin to add a customizable chatbot UI to your documentation site. Supports WebSocket and REST API backends, custom branding, and broadcast notifications.
+A professional, modern chatbot web component with real-time WebSocket/REST support.
+
+---
 
 ## Installation
 
-```bash
+**NPM:**
+```sh
 npm install @quasiris/qsc-chatbot-ui
-# or
-yarn add @quasiris/qsc-chatbot-ui
 ```
 
+---
+
+## Usage in HTML
+
+You can use the chatbot directly in any HTML page via CDN:
+
+```html
+<!-- Add this script tag to load the web component -->
+<script src="https://unpkg.com/@quasiris/qsc-chatbot-ui@latest/qsc-chatbot.js"></script>
+
+<!-- Use the custom element anywhere in your HTML -->
+<qsc-chatbot
+  ws-url="wss://your-websocket-server"
+  header-title="Chat Assistant"
+  assistant-name="AI Assistant"
+  logo-path="./assets/bot.png">
+</qsc-chatbot>
+```
 ## Example Usage in Docusaurus
 
 Add the plugin to your `docusaurus.config.js`:
@@ -29,21 +48,8 @@ plugins: [
   ],
 ],
 ```
-## Example Usage in Html
-
-Add the plugin to your `index.html`:
-
-```html
-  <script src="./qsc-chatbot.js"></script>
-  <body>
-      <qsc-chatbot
-        ws-url="ws://localhost:8080/chat"
-        header-title="QSC Chatbot"
-        assistant-name="QSC Assistant"
-      >
-      </qsc-chatbot>
-    </body>
-```
+---
+## API References
 
 - `wsUrl` (string, required): WebSocket endpoint for the chatbot backend.
 - `headerTitle` (string, optional): Title displayed in the chatbot header.
@@ -52,8 +58,27 @@ Add the plugin to your `index.html`:
 - `restUrl` (string, optional): REST endpoint for fallback if WebSocket is unavailable.
 - `enableRestFallback` (boolean, optional): Enable REST fallback (requires `restUrl`).
 
-## Logo Fallback
-
 If the `logoPath` is invalid or the image cannot be loaded, the plugin will automatically display a styled "Qsc" text as a fallback.
+
+---
+
+## Screenshots
+
+```html
+<img src="./assets/QscChatBot.png" alt="QSC Chatbot UI" />
+<img src="./assets/QscChatBot01.png" alt="QSC Chatbot UI 01" />
+```
+
+---
+
+## Features
+
+- Modern, clean UI with smooth animations
+- Real-time WebSocket communication
+- Broadcast notifications when chat is closed
+- Connection status indicators
+- Message history with timestamps
+- Responsive design for all devices
+
 
 

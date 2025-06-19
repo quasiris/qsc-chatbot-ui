@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>QSC Chatbot Test</title>
+  <title>QSC Chatbot</title>
+  <link rel="icon" type="image/png" href="./assets/favicon.png">
   <style>
     * {
       margin: 0;
@@ -38,6 +39,58 @@
       margin-bottom: 1rem;
     }
     
+    .subtitle {
+      font-size: 1.2rem;
+      color: #6c757d;
+      margin-bottom: 2rem;
+    }
+    
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 2rem;
+      max-width: 1200px;
+      margin-bottom: 3rem;
+      width: 100%;
+    }
+    
+    .feature-card {
+      background: white;
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+      transition: all 0.3s ease;
+      border: 1px solid #e9ecef;
+    }
+    
+    .feature-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 15px 40px rgba(0, 0, 0, 0.1);
+    }
+    
+    .feature-card h3 {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: #0078d4;
+      margin-bottom: 1rem;
+      font-weight: 600;
+    }
+    
+    .feature-card p {
+      color: #495057;
+      line-height: 1.6;
+    }
+    
+    .feature-icon {
+      width: 36px;
+      height: 36px;
+      background: rgba(0, 120, 212, 0.1);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
     
     .container {
       width: 100%;
@@ -46,7 +99,57 @@
       flex-direction: column;
       align-items: center;
     }
-        
+    
+    .demo-section {
+      background: white;
+      border-radius: 16px;
+      padding: 2.5rem;
+      box-shadow: 0 15px 50px rgba(0, 0, 0, 0.1);
+      width: 100%;
+      max-width: 1000px;
+      border: 1px solid #e9ecef;
+      margin-bottom: 2rem;
+    }
+    
+    .demo-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 1.5rem;
+      font-size: 1.5rem;
+      color: #212529;
+      font-weight: 600;
+    }
+    
+    .demo-container {
+      display: flex;
+      gap: 2rem;
+      flex-wrap: wrap;
+    }
+    
+    .demo-description {
+      flex: 1;
+      min-width: 300px;
+    }
+    
+    .demo-description p {
+      color: #495057;
+      line-height: 1.7;
+      margin-bottom: 1.5rem;
+    }
+    
+    .demo-box {
+      flex: 1;
+      min-width: 300px;
+      height: 500px;
+      background: #f8f9fa;
+      border-radius: 12px;
+      border: 1px solid #e9ecef;
+      position: relative;
+      overflow: hidden;
+      box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.03);
+    }
+    
     .code-header {
       display: flex;
       align-items: center;
@@ -85,20 +188,79 @@
     .token.attr-value {
       color: #ce9178;
     }
-
+    
+    .footer {
+      text-align: center;
+      margin-top: 2rem;
+      color: #6c757d;
+      font-size: 0.9rem;
+    }
+    
+    @media (max-width: 768px) {
+      .features {
+        grid-template-columns: 1fr;
+      }
+      
+      .demo-container {
+        flex-direction: column;
+      }
+      
+      .demo-box {
+        height: 400px;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="header">
-    <h1>QSC Chatbot Component</h1>
+    <h1>QSC Chatbot Web Component</h1>
+    <p class="subtitle">Professional, modern chatbot interface with real-time communication</p>
   </div>
   
   <div class="container">
-    <qsc-chatbot
-    ws-url="ws://localhost:8080/chat"
-    header-title="QSC Chatbot"
-    assistant-name="QSC Assistant"
-    ></qsc-chatbot>
+    <div class="features">
+      <div class="feature-card">
+        <h3><span class="feature-icon">💬</span> Real-time Chat</h3>
+        <p>WebSocket integration for instant messaging with connection status indicators.</p>
+      </div>
+      <div class="feature-card">
+        <h3><span class="feature-icon">📢</span> Broadcast Messages</h3>
+        <p>System broadcasts appear as notifications when the chat is closed.</p>
+      </div>
+      <div class="feature-card">
+        <h3><span class="feature-icon">⚡</span> Instant Messaging</h3>
+        <p>User messages appear immediately when sent via button or Enter key.</p>
+      </div>
+    </div>
+    
+    <div class="demo-section">
+      <div class="demo-title">Chatbot Demo</div>
+      <div class="demo-container">
+        <div class="demo-description">
+          <p>This professional chatbot features:</p>
+          <ul style="padding-left: 1.5rem; margin-bottom: 1.5rem; color: #495057; line-height: 1.7;">
+            <li>Modern, clean UI with smooth animations</li>
+            <li>Real-time WebSocket communication</li>
+            <li>Broadcast notifications when chat is closed</li>
+            <li>Connection status indicators</li>
+            <li>Message history with timestamps</li>
+            <li>Responsive design for all devices</li>
+          </ul>
+          <p>Try sending a message or wait for a broadcast notification to appear!</p>
+        </div>
+        <div class="demo-box">
+          <img src="./assets/QscChatbot.png" style="max-width:18vw;height:auto;" alt="QscChatbot" />
+          <img src="./assets/QscChatbot01.png" alt="QscChatbot01" style="border-radius:50%;"> 
+
+          <qsc-chatbot
+            ws-url="ws://localhost:8080/chat"
+            header-title="QSC Assistant"
+            assistant-name="QSC Assistant"
+            logo-path="./assets/bot.png"
+          ></qsc-chatbot>
+        </div>
+      </div>
+    </div>
     
     <div class="code-header">
       <h3>Implementation Code</h3>
@@ -112,6 +274,11 @@
 &lt;/qsc-chatbot&gt;</code></pre>
     </div>
   </div>
-  <script src="./qsc-chatbot.js"></script>
+
+  <div class="footer">
+    QSC Chatbot Component | Professional Web Interface
+  </div>
+
+  <script src="https://unpkg.com/@quasiris/qsc-chatbot-ui@latest/qsc-chatbot.js"></script>
 </body>
 </html>
