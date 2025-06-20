@@ -3,6 +3,8 @@ class QscChatbot extends HTMLElement {
     super();
     this.attachShadow({ mode: 'open' });
     this.isOpen = false;
+    this.isFullscreen = false;
+    this.isMinimized = false;
     this.messages = [
       { 
         id: 1, 
@@ -596,25 +598,61 @@ class QscChatbot extends HTMLElement {
         left: 20px;
         max-width: none;
         }
+        
+        .fullscreen-btn,
+        .minimize-btn {
+          display: none !important;
+        }
+      }
+      
+      .chat-window.fullscreen {
+        width: 100vw !important;
+        height: 100vh !important;
+        border-radius: 0 !important;
+        position: fixed !important;
+        top: 0; left: 0; right: 0; bottom: 0;
+        z-index: 10000;
+      }
+      .chat-window.minimized {
+        min-height: 0 !important;
+        overflow: hidden !important;
+      }
+      .fullscreen-btn, .minimize-btn {
+        background: transparent;
+        border: none;
+        color: white;
+        cursor: pointer;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        margin-left: 4px;
+      }
+      .fullscreen-btn:hover, .minimize-btn:hover {
+        background: rgba(255,255,255,0.2);
       }
       </style>
       
       <div class="chatbot-container">
       ${this.isOpen ? `
-        <div class="chat-window">
+        <div class="chat-window${this.isFullscreen ? ' fullscreen' : ''}${this.isMinimized ? ' minimized' : ''}">
         <div class="header">
           <div class="header-title">${this.headerTitle}</div>
           
           <div class="header-controls">
           <div class="connection-status">
             <div class="status-dot ${this.connectionStatus === 'connected' ? 'status-connected' : 
-             this.connectionStatus === 'connecting' ? 'status-connecting' : 'status-error'}"></div>
+      this.connectionStatus === 'connecting' ? 'status-connecting' : 'status-error'}"></div>
             <span>${this.connectionStatus}</span>
           </div>
-          
-          <button class="close-btn" title="Close">
-            &times;
-          </button>
+          ${this.isFullscreen
+            ? `<button class="minimize-btn" title="Minimize">&#8211;</button>`
+            : `<button class="fullscreen-btn" title="Fullscreen">&#x26F6;</button>`
+          }
+          <button class="close-btn" title="Close">&times;</button>
           </div>
         </div>
         
@@ -694,6 +732,23 @@ class QscChatbot extends HTMLElement {
     if (closeBtn) {
       closeBtn.addEventListener('click', () => {
         this.isOpen = false;
+        this.render();
+      });
+    }
+    
+    const fullscreenBtn = this.shadowRoot.querySelector('.fullscreen-btn');
+    if (fullscreenBtn) {
+      fullscreenBtn.addEventListener('click', () => {
+        this.isFullscreen = !this.isFullscreen;
+        if (this.isFullscreen) this.isMinimized = false;
+        this.render();
+      });
+    }
+    const minimizeBtn = this.shadowRoot.querySelector('.minimize-btn');
+    if (minimizeBtn) {
+      minimizeBtn.addEventListener('click', () => {
+        this.isMinimized = !this.isMinimized;
+        if (this.isMinimized) this.isFullscreen = false;
         this.render();
       });
     }

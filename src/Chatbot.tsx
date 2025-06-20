@@ -6,51 +6,55 @@ interface Message {
   id: string | number;
   text: string;
   sender: 'user' | 'bot' | 'system';
+  timestamp?: Date;
 }
 
 interface Props {
   wsUrl: string;
-  restUrl?: string;
-  enableRestFallback?: boolean;
   headerTitle?: string;
   logoPath?: string;
   assistantName?: string;
 }
 
+const isMobile = () => window.innerWidth <= 480;
+
+const statusClassMap = {
+  connected: styles.statusConnected,
+  connecting: styles.statusConnecting,
+  error: styles.statusError,
+};
+
 export default function Chatbot({
   wsUrl,
-  restUrl,
-  headerTitle,
+  headerTitle = 'AI Assistant',
   logoPath,
-  assistantName,
-  enableRestFallback = false,
+  assistantName = 'AI assistant',
 }: Props) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
-    { id: 1, text: `Hello! I'm your ${assistantName}.`, sender: 'bot' },
+    {
+      id: 1,
+      text: `Hello! I'm your ${assistantName}. How can I help you today?`,
+      sender: 'bot',
+      timestamp: new Date(),
+    },
   ]);
-  const [inputValue, setInputValue] = useState('');
-  const [connectionStatus, setConnectionStatus] =
-    useState<'connecting' | 'connected' | 'error'>('connecting');
-  const apiMode: 'ws' | 'rest' = 'ws';
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
+  const [unreadCount, setUnreadCount] = useState(0);
   const [latestBroadcast, setLatestBroadcast] = useState<string | null>(null);
+  const [showBroadcastPopup, setShowBroadcastPopup] = useState(false);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
+  // WebSocket logic
   useEffect(() => {
-    if (!wsUrl) {
-      console.error('Error: wsUrl is required for Chatbot plugin');
-    }
-    if (enableRestFallback && !restUrl) {
-      console.error('Error: restUrl must be provided when enableRestFallback is true');
-    }
-  }, [wsUrl, restUrl, enableRestFallback]);
-
-  useEffect(() => {
+    if (!wsUrl) return;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
-
     ws.onopen = () => {
       setConnectionStatus('connected');
       ws.send(JSON.stringify({ type: 'register', clientId: `web-${Date.now()}` }));
@@ -58,162 +62,187 @@ export default function Chatbot({
     ws.onerror = () => setConnectionStatus('error');
     ws.onclose = () => setConnectionStatus('error');
     ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'response') addBotMessage(data.text);
-      if (data.type === 'broadcast') {
-        setLatestBroadcast(data.text);
-        addSystemMessage(`📢 ${data.text}`);
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'broadcast') {
+          const message = data.text || data.message;
+          setMessages((prev) => [
+            ...prev,
+            { id: Date.now(), text: message, sender: 'system', timestamp: new Date() },
+          ]);
+          setLatestBroadcast(message);
+          if (!isOpen) {
+            setShowBroadcastPopup(true);
+            setUnreadCount((c) => c + 1);
+          }
+        } else {
+          const message = data.message || data.text || event.data;
+          setMessages((prev) => [
+            ...prev,
+            { id: Date.now(), text: message, sender: 'bot', timestamp: new Date() },
+          ]);
+        }
+      } catch (e) {
+        // ignore
       }
     };
-
     return () => {
-      if (ws.readyState === WebSocket.OPEN) ws.close();
+      ws.close();
     };
   }, [wsUrl]);
 
   useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isOpen, isFullscreen, isMinimized]);
+
+  useEffect(() => {
+    if (isOpen) inputRef.current?.focus();
+  }, [isOpen]);
+
+  // Show broadcast popup when closed
+  useEffect(() => {
     if (latestBroadcast && !isOpen) {
-      const note = document.createElement('div');
-      note.className = styles.broadcastNotification;
-      note.textContent = latestBroadcast;
-      note.onclick = () => setIsOpen(true);
-      document.body.appendChild(note);
-      setTimeout(() => {
-        note.style.opacity = '0';
-        setTimeout(() => note.remove(), 200);
-      }, 5000);
+      setShowBroadcastPopup(true);
+    } else {
+      setShowBroadcastPopup(false);
     }
   }, [latestBroadcast, isOpen]);
 
-  const addBotMessage = (text: string) =>
-    setMessages((prev) => [...prev, { id: Date.now(), text, sender: 'bot' }]);
-  const addSystemMessage = (text: string) =>
-    setMessages((prev) => [...prev, { id: Date.now(), text, sender: 'system' }]);
-
-  const toggleChat = () => {
-    setIsOpen((o) => !o);
-    setLatestBroadcast(null);
-  };
-
-  const sendRest = async (text: string) => {
-    if (!restUrl) return;
-    try {
-      const res = await fetch(restUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'message', text, id: `${Date.now()}` }),
-      });
-      const data = await res.json();
-      addBotMessage(data.text);
-    } catch {
-      addBotMessage('Error connecting to server.');
+  useEffect(() => {
+    if (isOpen) {
+      setShowBroadcastPopup(false);
+      setUnreadCount(0);
     }
-  };
+  }, [isOpen]);
 
+  const showFullscreenBtn = !isMobile() && !isFullscreen;
+  const showMinimizeBtn = !isMobile() && isFullscreen;
+
+  // Send message
   const handleSend = () => {
-    const trimmed = inputValue.trim();
-    if (!trimmed) return;
-
-    setMessages((prev) => [...prev, { id: Date.now(), text: trimmed, sender: 'user' }]);
-    setInputValue('');
-
-    if (
-      apiMode === 'ws' &&
-      connectionStatus === 'connected' &&
-      wsRef.current
-    ) {
-      try {
-        wsRef.current.send(JSON.stringify({ type: 'message', text: trimmed, id: `${Date.now()}` }));
-      } catch {
-        enableRestFallback && sendRest(trimmed);
-      }
-    } else if (enableRestFallback) {
-      sendRest(trimmed);
+    const input = inputRef.current;
+    if (!input) return;
+    const value = input.value.trim();
+    if (!value) return;
+    setMessages((prev) => [
+      ...prev,
+      { id: Date.now(), text: value, sender: 'user', timestamp: new Date() },
+    ]);
+    input.value = '';
+    if (wsRef.current && connectionStatus === 'connected') {
+      wsRef.current.send(JSON.stringify({ type: 'message', text: value }));
+    } else {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          text: "Sorry, I'm having connection issues. Please try again later.",
+          sender: 'system',
+          timestamp: new Date(),
+        },
+      ]);
     }
+  };
+
+  // Logo fallback logic
+  const [logoError, setLogoError] = useState(false);
+
+  const handleFullscreen = () => {
+    setIsFullscreen((prev) => {
+      if (!prev) setIsMinimized(false);
+      return !prev;
+    });
+  };
+
+  const handleMinimize = () => {
+    setIsMinimized((prev) => {
+      if (!prev) setIsFullscreen(false);
+      return !prev;
+    });
   };
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    let timer: NodeJS.Timeout;
+    if (showBroadcastPopup && !isOpen) {
+      timer = setTimeout(() => setShowBroadcastPopup(false), 4000);
+    }
+    return () => clearTimeout(timer);
+  }, [showBroadcastPopup, isOpen]);
 
   return (
     <div className={styles.chatbotContainer}>
-      {isOpen && (
-        <div className={styles.chatWindow}>
+      {isOpen ? (
+        <div
+          className={[
+            styles.chatWindow,
+            isFullscreen ? styles.fullscreen : '',
+            isMinimized ? styles.minimized : '',
+          ].join(' ')}
+        >
           <div className={styles.header}>
-            <div className={styles.headerLeft}>
-              <h3>{headerTitle}</h3>
-              <div className={`${styles.connectionStatus} ${styles[connectionStatus]}`}>
-                <div className={styles.statusDot} />
-                {connectionStatus.toUpperCase()}
-              </div>
-            </div>
+            <div className={styles.headerTitle}>{headerTitle}</div>
             <div className={styles.headerRight}>
-              <button className={styles.closeButton} onClick={toggleChat}>
-                ×
+              <div className={styles.connectionStatus}>
+                <span className={[styles.statusDot, statusClassMap[connectionStatus]].join(' ')}></span>
+                <span>{connectionStatus}</span>
+              </div>
+              {showMinimizeBtn && (
+                <button className={styles.minimizeBtn} title="Minimize" onClick={handleMinimize}>
+                  &#8211;
+                </button>
+              )}
+              {showFullscreenBtn && (
+                <button className={styles.fullscreenBtn} title="Fullscreen" onClick={handleFullscreen}>
+                  &#x26F6;
+                </button>
+              )}
+              <button className={styles.closeButton} title="Close" onClick={() => setIsOpen(false)}>
+                &times;
               </button>
             </div>
           </div>
-
           <div className={styles.messages}>
-            {messages.map((msg) => (
-              <ChatMessage key={msg.id} message={msg} />
+            {messages.map((m) => (
+              <ChatMessage key={m.id} message={m} />
             ))}
             <div ref={messagesEndRef} />
           </div>
-
           <div className={styles.inputArea}>
             <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Type a message…"
               className={styles.input}
+              type="text"
+              ref={inputRef}
+              placeholder="Type a message..."
+              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
             />
-            <button onClick={handleSend} className={styles.sendButton}>
-              Send
+            <button className={styles.sendButton} onClick={handleSend}>
+              <svg className={styles.sendIcon} viewBox="0 0 24 24" fill="white">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+              </svg>
             </button>
           </div>
         </div>
+      ) : (
+        <button className={styles.toggleButton} onClick={() => setIsOpen(true)}>
+          {logoPath && !logoError ? (
+            <img
+              src={logoPath}
+              alt="Qsc"
+              className={styles.jumpLoop}
+              onError={() => setLogoError(true)}
+            />
+          ) : (
+            <span className={styles.jumpLoop}>Qsc</span>
+          )}
+          {unreadCount > 0 ? <div className={styles.broadcastIndicator}>{unreadCount}</div> : ''}
+        </button>
       )}
-
-     <button
-  className={`${styles.toggleButton} ${isOpen ? styles.hidden : ''}`}
-  onClick={toggleChat}
->
-  {latestBroadcast && (
-    <div className={styles.broadcastIndicator}>📢</div>
-  )}
-  {logoPath ? (
-    <img
-      src={logoPath}
-      alt="Bot"
-      width={48}
-      height={48}
-      className={styles.jumpLoop}
-      onError={(e) => {
-        const target = e.currentTarget;
-        target.onerror = null;
-        target.style.display = 'none';
-        const fallback = document.createElement('strong');
-        fallback.className = styles.jumpLoop;
-        fallback.style.color = 'white';
-        fallback.style.fontSize = '23px';
-        fallback.textContent = 'Qsc';
-        target.parentNode?.appendChild(fallback);
-      }}
-    />
-  ) : (
-    <strong
-      className={styles.jumpLoop}
-      style={{ color: 'white', fontSize: '23px' }}
-    >
-      Qsc
-    </strong>
-  )}
-</button>
-
+      {showBroadcastPopup && !isOpen && latestBroadcast && (
+        <div className={styles.broadcastPopup}>
+          <div className={styles.broadcastIcon}>📢</div>
+          <span>{latestBroadcast}</span>
+        </div>
+      )}
     </div>
   );
 }
