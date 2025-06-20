@@ -272,7 +272,7 @@ class QscChatbot extends HTMLElement {
       
       .toggle-btn img.jumpLoop {
         width: 50px;
-        height: 45px;
+        height: 50px;
         border-radius: 50%;
         object-fit: cover;
         animation: smoothJump 1s ease-in-out infinite;

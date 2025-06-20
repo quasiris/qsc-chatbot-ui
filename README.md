@@ -62,9 +62,58 @@ If the `logoPath` is invalid or the image cannot be loaded, the plugin will auto
 
 ---
 
+## Message Types
+
+The chatbot UI supports the following message types in server responses:
+
+- **Bot/Assistant Message**:  
+  Sent by the assistant, appears on the left.
+  ```json
+  {
+    "type": "message" | "response",
+    "text": "Hi, how can I help you?",
+    "sender": "bot",
+    "timestamp": 1680000000001
+  }
+  ```
+
+- **System/Broadcast Message**:  
+  Sent by the system or as a broadcast, appears on the left with a "System" label.
+  ```json
+  {
+    "type": "broadcast",
+    "text": "System maintenance at 2am.",
+    "sender": "system",
+    "timestamp": 1680000000002
+  }
+  ```
+
+---
+
+## Broadcast Messages
+
+- **When the chat window is open:**  
+  Broadcast messages are shown as system messages in the chat window, with a "System" label and a 📢 icon.
+
+- **When the chat window is closed:**  
+  Broadcast messages trigger a popup notification and a red indicator dot on the toggle button.
+
+**Example broadcast message from server:**
+```json
+{
+  "type": "broadcast",
+  "text": "Hello, Qsc Team!",
+  "timestamp": 1680000000002
+}
+```
+
+---
+
 ## Screenshots
 ![QSC Chatbot UI](https://github.com/quasiris/qsc-chatbot-ui/blob/main/assets/QscChatbot.png)
 ![QSC Chatbot UI 01](https://github.com/quasiris/qsc-chatbot-ui/blob/main/assets/QscChatbot01.png)
+![QSC Chatbot UI 02](https://github.com/quasiris/qsc-chatbot-ui/blob/main/assets/QscChatbot02.png)
+![QSC Chatbot UI 03](https://github.com/quasiris/qsc-chatbot-ui/blob/main/assets/QscChatbot03.png)
 
 ---
 

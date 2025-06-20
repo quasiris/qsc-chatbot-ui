@@ -141,7 +141,7 @@
     .demo-box {
       flex: 1;
       min-width: 300px;
-      height: 500px;
+      height: 445px;
       background: #f8f9fa;
       border-radius: 12px;
       border: 1px solid #e9ecef;
@@ -249,27 +249,44 @@
           <p>Try sending a message or wait for a broadcast notification to appear!</p>
         </div>
         <div class="demo-box">
-          <img src="./assets/QscChatbot.png" style="max-width:18vw;height:auto;" alt="QscChatbot" />
-          <img src="./assets/QscChatbot01.png" alt="QscChatbot01" style="border-radius:50%;"> 
+          <img src="./assets/QscChatbot.png" style="width: 78%;height:auto;" alt="QscChatbot" />
+          <img src="./assets/QscChatbot01.png" alt="QscChatbot01" style="border-radius:50%;width: 19%;"> 
 
           <qsc-chatbot
             ws-url="ws://localhost:8080/chat"
-            header-title="QSC Assistant"
+            header-title="QSC Chatbot"
             assistant-name="QSC Assistant"
             logo-path="./assets/bot.png"
           ></qsc-chatbot>
+        </div>
+        <div class="demo-box">
+          <img src="./assets/QscChatbot02.png" alt="QscChatbot02" style="border-radius:5%;width: 20%;"> 
+          <img src="./assets/QscChatbot03.png" alt="QscChatbot03" style="border-radius:5%;width: 37%;"> 
+          <img src="./assets/QscChatbot04.png" alt="QscChatbot03" style="border-radius:5%;width: 37%;"> 
         </div>
       </div>
     </div>
     
     <div class="code-header">
-      <h3>Implementation Code</h3>
+      <h3>Implementation Code Websocket</h3>
     </div>
     <div class="code-container">
       <pre><code>&lt;qsc-chatbot
   ws-url="wss://your-websocket-server"
-  header-title="Chat Assistant"
-  assistant-name="AI Assistant"
+  header-title="QSC Chatbot"
+  assistant-name="Qsc Assistant"
+  logo-path="./path/to/logo.png"&gt;
+&lt;/qsc-chatbot&gt;</code></pre>
+    </div> 
+    <div class="code-header">
+      <h3>Implementation Code REST Api</h3>
+    </div>
+    <div class="code-container">
+      <pre><code>&lt;qsc-chatbot
+  rest-url="https://your-rest-api-endpoint"', 
+  enable-rest-fallback="true",       
+  header-title="QSC Chatbot"
+  assistant-name="QSC Assistant"
   logo-path="./path/to/logo.png"&gt;
 &lt;/qsc-chatbot&gt;</code></pre>
     </div>

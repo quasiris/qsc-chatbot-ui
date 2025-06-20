@@ -1,6 +1,6 @@
 {
   "name": "@quasiris/qsc-chatbot-ui",
-  "version": "1.1.3",
+  "version": "1.1.5",
   "description": "A ReactJs plugin that injects a Chatbot UI with WS/REST support",
   "main": "lib/index.js",
   "unpkg": "qsc-chatbot.js",
@@ -17,12 +17,19 @@
     "qsc-chatbot.js"
   ],
   "keywords": [
-    "quasiris",
+    "Quasiris",
+    "chatbot-ui",
+    "chatbot-ui-react",
+    "chatbot-ui-webcomponent",
+    "chatbot-ui-plugin-react",
+    "chatbot-ui-plugin-webcomponent",
+    "chatbot-ui-plugin-docusaurus",
     "docusaurus",
-    "plugin",
+    "QSC",
     "webComponent",
     "chatbot",
-    "react"
+    "react",
+    "plugin"
   ],
   "peerDependencies": {
     "@docusaurus/core": "^3.x",
