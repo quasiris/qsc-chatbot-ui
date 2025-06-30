@@ -82,6 +82,24 @@ class QscChatbot extends HTMLElement {
           this.renderMessages();
         }
         
+        if (data.type === 'image') {
+          this.messages.push({
+            id: Date.now(),
+            text: `<img src="${data.data}" alt="server image" style="max-width:200px;max-height:200px;">`,
+            sender: 'bot',
+            timestamp: new Date()
+          });
+          this.renderMessages();
+        } else if (data.type === 'markdown') {
+          this.messages.push({
+            id: Date.now(),
+            text: `<pre class="markdown">${data.data}</pre>`,
+            sender: 'bot',
+            timestamp: new Date()
+          });
+          this.renderMessages();
+        }
+        
         this.scrollToBottom();
       } catch (e) {
         console.error('Error processing message:', e);
@@ -542,6 +560,29 @@ class QscChatbot extends HTMLElement {
         height: 20px;
       }
       
+      .attach-btn {
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        width: 44px;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        margin-right: 4px;
+      }
+      .attach-btn svg {
+        width: 20px;
+        height: 20px;
+        stroke: #222;
+        fill: none;
+        display: block;
+      }
+      .attach-btn:hover {
+        background: rgba(0,0,0,0.04);
+      }
+      
       .broadcast-popup {
         position: fixed;
         bottom: 100px;
@@ -575,6 +616,17 @@ class QscChatbot extends HTMLElement {
       
       .fade-out {
         opacity: 0;
+      }
+      
+      .markdown {
+        background: #fff;
+        border-radius: 8px;
+        padding: 10px;
+        font-family: monospace;
+        white-space: pre-wrap;
+        max-width: 100%;
+        overflow-x: auto;
+        color: black !important;
       }
       
       @media (max-width: 480px) {
@@ -692,6 +744,12 @@ class QscChatbot extends HTMLElement {
         
         <div class="input-area">
           <input class="chat-input" type="text" placeholder="Type a message..." autofocus>
+          <input class="file-input" type="file" accept="image/*,.md,.markdown" style="display:none">
+          <button class="attach-btn" title="Attach file">
+            <svg viewBox="0 0 24 24" fill="none" width="20" height="20" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a5 5 0 01-7.07-7.07l9.19-9.19a3 3 0 014.24 4.24l-9.19 9.19a1 1 0 01-1.41-1.41l9.19-9.19" />
+            </svg>
+          </button>
           <button class="send-btn">
           <svg class="send-icon" viewBox="0 0 24 24" fill="white">
             <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
@@ -750,6 +808,54 @@ class QscChatbot extends HTMLElement {
         this.isMinimized = !this.isMinimized;
         if (this.isMinimized) this.isFullscreen = false;
         this.render();
+      });
+    }
+    
+    const fileInput = this.shadowRoot.querySelector('.file-input');
+    const attachBtn = this.shadowRoot.querySelector('.attach-btn');
+    if (attachBtn && fileInput) {
+      attachBtn.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.type.startsWith('image/')) {
+          // Send image as base64
+          const reader = new FileReader();
+          reader.onload = () => {
+            const base64 = reader.result;
+            this.messages.push({
+              id: Date.now(),
+              text: `<img src="${base64}" alt="user upload" style="max-width:200px;max-height:200px;">`,
+              sender: 'user',
+              timestamp: new Date()
+            });
+            this.renderMessages();
+            this.scrollToBottom();
+            if (this.ws && this.connectionStatus === 'connected') {
+              this.ws.send(JSON.stringify({ type: 'image', data: base64, filename: file.name }));
+            }
+          };
+          reader.readAsDataURL(file);
+        } else if (file.name.endsWith('.md') || file.name.endsWith('.markdown')) {
+          // Send markdown file as text
+          const reader = new FileReader();
+          reader.onload = () => {
+            const content = reader.result;
+            this.messages.push({
+              id: Date.now(),
+              text: `<pre class="markdown">${content}</pre>`,
+              sender: 'user',
+              timestamp: new Date()
+            });
+            this.renderMessages();
+            this.scrollToBottom();
+            if (this.ws && this.connectionStatus === 'connected') {
+              this.ws.send(JSON.stringify({ type: 'markdown', data: content, filename: file.name }));
+            }
+          };
+          reader.readAsText(file);
+        }
+        fileInput.value = '';
       });
     }
   }

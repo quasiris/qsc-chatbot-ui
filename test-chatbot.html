@@ -339,7 +339,7 @@
     </div>
     
     <div class="demo-section">
-      <div class="demo-title">Chatbot Demo</div>
+      <div class="demo-title">QSC Chatbot Demo</div>
       <div class="demo-container">
         <div class="demo-description">
           <p>This professional chatbot features:</p>
@@ -349,9 +349,19 @@
             <li>Broadcast notifications when chat is closed</li>
             <li>Connection status indicators</li>
             <li>Message history with timestamps</li>
+            <li>Full-screen support for immersive conversations</li>
+            <li>Support for Markdown and image attachments</li>
             <li>Responsive design for all devices</li>
           </ul>
-          <p>Try sending a message or wait for a broadcast notification to appear!</p>
+          <p>
+            The chatbot UI supports broadcast messages. To trigger a broadcast, your backend must send a 
+            <strong>POST</strong> request to <code>https://your-rest-api-endpoint/broadcast</code>. The <code>/broadcast</code> should receive a JSON payload like:
+          </p>
+          <pre style="background-color: #f8f9fa; padding: 1rem; border-radius: 0.5rem; color: #212529;">
+{
+  "text": "Hello, Qsc team!"
+}
+          </pre>
         </div>
         <div class="demo-box">
           <img src="./assets/QscChatbot.png" alt="QscChatbot" />
@@ -369,6 +379,9 @@
           <div class="demo-img-row">
             <img src="./assets/QscChatbot03.png" alt="QscChatbot03" style="border-radius:5%;">
             <img src="./assets/QscChatbot04.png" alt="QscChatbot04" style="border-radius:5%;">
+          </div>
+           <div class="single">
+            <img src="./assets/QscChatbot05.png" alt="QscChatbot05" style="border-radius:1%;">
           </div>
         </div>
       </div>
@@ -403,6 +416,6 @@
     QSC Chatbot Component | Professional Web Interface
   </div>
 
-  <script src="https://unpkg.com/@quasiris/qsc-chatbot-ui@latest/qsc-chatbot.js"></script>
+  <script src="./qsc-chatbot.js"></script>
 </body>
 </html>
