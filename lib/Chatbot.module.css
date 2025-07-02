@@ -198,7 +198,7 @@
 }
 .systemIcon { font-size: 18px; }
 .messageText { flex: 1; }
-.messageText pre.markdown {
+:global(pre.markdown) {
   background: #fff;
   padding: 10px;
   font-family: monospace;
