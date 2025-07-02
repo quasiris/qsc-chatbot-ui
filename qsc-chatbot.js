@@ -5,24 +5,26 @@ class QscChatbot extends HTMLElement {
     this.isOpen = false;
     this.isFullscreen = false;
     this.isMinimized = false;
+    this.messages = [];
+    this.ws = null;
+    this.connectionStatus = 'connecting';
+    this.unreadCount = 0;
+  }
+
+  connectedCallback() {
+    this.logoPath = this.getAttribute('logo-path');
+    this.headerTitle = this.getAttribute('header-title') || 'AI Assistant';
+    this.assistantName = this.getAttribute('assistant-name') || 'AI assistant';
+    this.wsUrl = this.getAttribute('ws-url');
     this.messages = [
       { 
         id: 1, 
-        text: `Hello! I'm your ${this.getAttribute('assistant-name') || 'AI assistant'}. How can I help you today?`, 
+        text: `Hello! I'm your ${this.assistantName}. How can I help you today?`, 
         sender: 'bot',
         timestamp: new Date()
       }
     ];
-    this.logoPath = this.getAttribute('logo-path');
-    this.headerTitle = this.getAttribute('header-title') || 'AI Assistant';
-    this.wsUrl = this.getAttribute('ws-url');
-    this.ws = null;
-    this.connectionStatus = 'connecting';
-    this.unreadCount = 0;
     this.render();
-  }
-
-  connectedCallback() {
     if (this.wsUrl) {
       this.initWebSocket();
     }
@@ -261,7 +263,7 @@ class QscChatbot extends HTMLElement {
       
       .chatbot-container {
         position: fixed;
-        bottom: 24px;
+        bottom: 60px;
         right: 24px;
         z-index: 9999;
         transition: transform 0.3s ease;
@@ -585,7 +587,7 @@ class QscChatbot extends HTMLElement {
       
       .broadcast-popup {
         position: fixed;
-        bottom: 100px;
+        bottom: 127px;
         right: 40px;
         background: #fff8e1;
         color: #856404;
@@ -659,11 +661,11 @@ class QscChatbot extends HTMLElement {
       
       .chat-window.fullscreen {
         width: 100vw !important;
-        height: 100vh !important;
+        height: auto !important;
         border-radius: 0 !important;
         position: fixed !important;
-        top: 0; left: 0; right: 0; bottom: 0;
-        z-index: 10000;
+        top: 152px;left: 0; right: 0; bottom: 60px;
+        z-index: 2147483647 !important;
       }
       .chat-window.minimized {
         min-height: 0 !important;

@@ -19,7 +19,7 @@ export default function ChatMessage({ message }: { message: Message }) {
       <div className={styles.messageRow + ' ' + styles.systemRow}>
         <div className={styles.bubble + ' ' + styles.systemBubble}>
           <div className={styles.systemIcon}>📢</div>
-          <div className={styles.messageText}>{message.text}</div>
+          <div className={styles.messageText} dangerouslySetInnerHTML={{ __html: message.text }} />
           <div className={styles.timestamp}>{formatTime(message.timestamp)}</div>
         </div>
       </div>
@@ -29,7 +29,7 @@ export default function ChatMessage({ message }: { message: Message }) {
     return (
       <div className={styles.messageRow + ' ' + styles.botRow}>
         <div className={styles.bubble + ' ' + styles.botBubble}>
-          <div className={styles.messageText}>{message.text}</div>
+          <div className={styles.messageText} dangerouslySetInnerHTML={{ __html: message.text }} />
           <div className={styles.timestamp}>{formatTime(message.timestamp)}</div>
         </div>
       </div>
@@ -39,7 +39,7 @@ export default function ChatMessage({ message }: { message: Message }) {
   return (
     <div className={styles.messageRow + ' ' + styles.userRow}>
       <div className={styles.bubble + ' ' + styles.userBubble}>
-        <div className={styles.messageText}>{message.text}</div>
+        <div className={styles.messageText} dangerouslySetInnerHTML={{ __html: message.text }} />
         <div className={styles.timestamp}>{formatTime(message.timestamp)}</div>
       </div>
     </div>
