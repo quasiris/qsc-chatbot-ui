@@ -73,7 +73,7 @@ class QscChatbot extends HTMLElement {
           
           this.renderMessages();
         } 
-        else {
+        else if (data.type === 'message'){
           const message = data.message || data.text || event.data;
           this.messages.push({ 
             id: Date.now(), 
