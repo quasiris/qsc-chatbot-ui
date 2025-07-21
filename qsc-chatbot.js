@@ -1,112 +1,106 @@
 class QscChatbot extends HTMLElement {
   constructor() {
-    super();
-    this.attachShadow({ mode: 'open' });
-    this.isOpen = false;
-    this.isFullscreen = false;
-    this.isMinimized = false;
-    this.messages = [];
-    this.ws = null;
-    this.connectionStatus = 'connecting';
-    this.unreadCount = 0;
+    super(); this.attachShadow({mode:'open'});
+    this.isOpen=false; this.isFullscreen=false; this.isMinimized=false;
+    this.messages=[]; this.ws=null; this.es=null;
+    this.connectionStatus='connecting'; this.unreadCount=0;
+    this.restClientId = null;
   }
 
-  connectedCallback() {
-    this.logoPath = this.getAttribute('logo-path');
-    this.headerTitle = this.getAttribute('header-title') || 'AI Assistant';
-    this.assistantName = this.getAttribute('assistant-name') || 'AI assistant';
-    this.wsUrl = this.getAttribute('ws-url');
-    this.messages = [
-      { 
-        id: 1, 
-        text: `Hello! I'm your ${this.assistantName}. How can I help you today?`, 
-        sender: 'bot',
-        timestamp: new Date()
-      }
-    ];
+  async connectedCallback() {
+    this.logoPath=this.getAttribute('logo-path');
+    this.headerTitle=this.getAttribute('header-title')||'AI Assistant';
+    this.assistantName=this.getAttribute('assistant-name')||'AI assistant';
+    this.wsUrl=this.getAttribute('ws-url');
+    this.restUrl=this.getAttribute('rest-url');
+    this.enableRestFallback=this.hasAttribute('enable-rest-fallback');
+    this.messages=[{id:1,text:`Hello! I'm your ${this.assistantName}. How can I help you today?`,sender:'bot',timestamp:new Date()}];
     this.render();
-    if (this.wsUrl) {
-      this.initWebSocket();
-    }
+
+    if (this.wsUrl) this.initWebSocket();
+    else if (this.restUrl && this.enableRestFallback) {
+      this.useRest=true;
+      this.restClientId = `rest-${Date.now()}`; 
+      this.es = new EventSource(this.restUrl);
+      this.es.onopen = () => {
+        this.connectionStatus = 'connected';
+        this.render();
+      };
+      this.es.onerror = () => {
+        this.connectionStatus = 'error';
+        this.render();
+      };
+      this.es.onmessage = e => {
+        const raw = e.data.trim();
+        if (!raw.startsWith('{')) return;
+        let msg;
+        try {
+          msg = JSON.parse(raw);
+        } catch {
+          return;
+        }
+        if (msg.type === 'broadcast') {
+          this._pushSystem(msg.text);
+        }
+        else {
+          this._pushBot(msg);
+        }
+      };
+    } else this.useRest=false;
   }
 
-  disconnectedCallback() {
-    if (this.ws) {
-      this.ws.close();
-    }
-  }
+  disconnectedCallback() { if(this.ws) this.ws.close(); if(this.es) this.es.close(); }
 
   initWebSocket() {
-    this.ws = new WebSocket(this.wsUrl);
-    this.ws.onopen = () => {
-      this.connectionStatus = 'connected';
-      this.ws.send(JSON.stringify({ type: 'register', clientId: `web-${Date.now()}` }));
-      this.render();
+    this.ws=new WebSocket(this.wsUrl);
+    this.ws.onopen=_=>{ this.connectionStatus='connected';
+      this.ws.send(JSON.stringify({type:'register',clientId:`web-${Date.now()}`})); this.render();
     };
-    this.ws.onerror = () => {
-      this.connectionStatus = 'error';
-      this.render();
+    this.ws.onerror=_=>{ this.connectionStatus='error'; this.render(); };
+    this.ws.onclose=_=>{ this.connectionStatus='error'; this.render(); };
+    this.ws.onmessage=e=>{ let d; try { d=JSON.parse(e.data);}catch{return;}
+      if(d.type==='broadcast') this._pushSystem(d.text);
+      else this._pushBot(d);
     };
-    this.ws.onclose = () => {
-      this.connectionStatus = 'error';
-      this.render();
-    };
-    this.ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'broadcast') {
-          const message = data.text || data.message;
-          
-          // Always add broadcast to messages array
-          this.messages.push({ 
-            id: Date.now(), 
-            text: message, 
-            sender: 'system',
-            timestamp: new Date()
-          });
-          
-          if (!this.isOpen) {
-            this.showBroadcastPopup(message);
-            this.unreadCount++;
-          }
-          
-          this.renderMessages();
-        } 
-        else if (data.type === 'message'){
-          const message = data.message || data.text || event.data;
-          this.messages.push({ 
-            id: Date.now(), 
-            text: message, 
-            sender: 'bot',
-            timestamp: new Date()
-          });
-          this.renderMessages();
-        }
-        
-        if (data.type === 'image') {
-          this.messages.push({
-            id: Date.now(),
-            text: `<img src="${data.data}" alt="server image" style="max-width:200px;max-height:200px;">`,
-            sender: 'bot',
-            timestamp: new Date()
-          });
-          this.renderMessages();
-        } else if (data.type === 'markdown') {
-          this.messages.push({
-            id: Date.now(),
-            text: `<pre class="markdown">${data.data}</pre>`,
-            sender: 'bot',
-            timestamp: new Date()
-          });
-          this.renderMessages();
-        }
-        
-        this.scrollToBottom();
-      } catch (e) {
-        console.error('Error processing message:', e);
-      }
-    };
+  }
+
+  _pushSystem(txt) {
+    this.messages.push({id:Date.now(),text:txt,sender:'system',timestamp:new Date()});
+    if(!this.isOpen){ this.showBroadcastPopup(txt); this.unreadCount++; }
+    this.renderMessages();
+  }
+
+  _pushBot(d) {
+    let html = '';
+    if(d.type==='image'){ html=`<img src="${d.data}" style="max-width:200px;max-height:200px;">`;}
+    else if(d.type==='markdown') {html=window.marked
+      ?`<div class="markdown">${window.marked.parse(d.data)}</div>`
+      :`<pre class="markdown">${d.data}</pre>`;
+    } else {
+      html = d.text || '';
+    }
+    this.messages.push({id:Date.now(),text:html,sender:'bot',timestamp:new Date()});
+    this.renderMessages();
+  }
+
+  async handleSend() {
+    const input=this.shadowRoot.querySelector('.chat-input');
+    const value=input.value.trim(); if(!value) return;
+    this.messages.push({id:Date.now(),text:value,sender:'user',timestamp:new Date()});
+    this.renderMessages(); this.scrollToBottom(); input.value='';
+
+    if(this.useRest) {
+      try{
+        const res=await fetch(this.restUrl,{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({type:'message',text:value,id:`rest-${Date.now()}`})
+        });
+        const data=await res.json(); this.handleRestBotResponse(data);;
+      }catch{ this._pushSystem("Sorry, can't reach server."); }
+      return;
+    }
+    if(this.ws && this.connectionStatus==='connected')
+      this.ws.send(JSON.stringify({type:'message',text:value}));
+    else this._pushSystem("Connection error.");
   }
 
   handleClick(e) {
@@ -119,9 +113,9 @@ class QscChatbot extends HTMLElement {
       return;
     }
     
-   if (e.target.closest('.send-btn')) {
-    this.handleSend();
-  }
+    if (e.target.closest('.send-btn')) {
+      this.handleSend();
+    }
   }
 
   handleKeyDown(e) {
@@ -130,35 +124,25 @@ class QscChatbot extends HTMLElement {
     }
   }
 
-  handleSend() {
-    const input = this.shadowRoot.querySelector('.chat-input');
-    const value = input.value.trim();
-    if (!value) return;
-    
-    this.messages.push({ 
-      id: Date.now(), 
-      text: value, 
-      sender: 'user',
-      timestamp: new Date()
-    });
-    
-    input.value = '';
-    
-    if (this.ws && this.connectionStatus === 'connected') {
-      this.ws.send(JSON.stringify({ type: 'message', text: value }));
+  handleRestBotResponse(data) {
+    let html = '';
+    if (data.type === 'image') {
+      html = `<img src="${data.data}" alt="server image" style="max-width:200px;max-height:200px;">`;
+    } else if (data.type === 'markdown') {
+      try {
+        const md = window.marked ? window.marked.parse(data.data)
+                  : (new window.showdown.Converter()).makeHtml(data.data);
+        html = `<div class="markdown">${md}</div>`;
+      } catch {
+        html = `<pre class="markdown">${data.data}</pre>`;
+      }
     } else {
-      this.messages.push({ 
-        id: Date.now(), 
-        text: "Sorry, I'm having connection issues. Please try again later.", 
-        sender: 'system',
-        timestamp: new Date()
-      });
+      html = data.text || data.message || data.data;
     }
-    
+    this.messages.push({ id: Date.now(), text: html, sender: 'bot', timestamp: new Date() });
     this.renderMessages();
     this.scrollToBottom();
   }
-
   scrollToBottom() {
     setTimeout(() => {
       const messagesDiv = this.shadowRoot.querySelector('.messages');
@@ -250,10 +234,10 @@ class QscChatbot extends HTMLElement {
 
       @keyframes smoothJump {
         0%, 100% {
-        transform: translateY(0);
+          transform: translateY(0);
         }
         50% {
-        transform: translateY(-5px);
+          transform: translateY(-5px);
         }
       }
 
@@ -339,8 +323,8 @@ class QscChatbot extends HTMLElement {
       
       @keyframes fadeInUp {
         to {
-        opacity: 1;
-        transform: translateY(0);
+          opacity: 1;
+          transform: translateY(0);
         }
       }
       
@@ -633,24 +617,24 @@ class QscChatbot extends HTMLElement {
       
       @media (max-width: 480px) {
         .chatbot-container {
-        bottom: 16px;
-        right: 16px;
+          bottom: 16px;
+          right: 16px;
         }
         
         .chat-window {
-        width: 100vw;
-        height: 100vh;
-        border-radius: 0;
-        bottom: 0;
-        right: 0;
-        position: fixed;
+          width: 100vw;
+          height: 100vh;
+          border-radius: 0;
+          bottom: 0;
+          right: 0;
+          position: fixed;
         }
         
         .broadcast-popup {
-        bottom: 90px;
-        right: 20px;
-        left: 20px;
-        max-width: none;
+          bottom: 90px;
+          right: 20px;
+          left: 20px;
+          max-width: none;
         }
         
         .fullscreen-btn,
@@ -691,84 +675,84 @@ class QscChatbot extends HTMLElement {
       </style>
       
       <div class="chatbot-container">
-      ${this.isOpen ? `
-        <div class="chat-window${this.isFullscreen ? ' fullscreen' : ''}${this.isMinimized ? ' minimized' : ''}">
-        <div class="header">
-          <div class="header-title">${this.headerTitle}</div>
-          
-          <div class="header-controls">
-          <div class="connection-status">
-            <div class="status-dot ${this.connectionStatus === 'connected' ? 'status-connected' : 
-      this.connectionStatus === 'connecting' ? 'status-connecting' : 'status-error'}"></div>
-            <span>${this.connectionStatus}</span>
-          </div>
-          ${this.isFullscreen
-            ? `<button class="minimize-btn" title="Minimize">&#8211;</button>`
-            : `<button class="fullscreen-btn" title="Fullscreen">&#x26F6;</button>`
-          }
-          <button class="close-btn" title="Close">&times;</button>
-          </div>
-        </div>
-        
-        <div class="messages">
-          ${this.messages.map(m => {
-          if (m.sender === 'system') {
-            return `
-            <div class="message-row system">
-              <div class="bubble system">
-              <div class="system-icon">📢</div>
-              <div class="message-text">${m.text}</div>
-              <div class="timestamp">${this.formatTime(m.timestamp)}</div>
+        ${this.isOpen ? `
+          <div class="chat-window${this.isFullscreen ? ' fullscreen' : ''}${this.isMinimized ? ' minimized' : ''}">
+            <div class="header">
+              <div class="header-title">${this.headerTitle}</div>
+              
+              <div class="header-controls">
+                <div class="connection-status">
+                  <div class="status-dot ${this.connectionStatus === 'connected' ? 'status-connected' : 
+                    this.connectionStatus === 'connecting' ? 'status-connecting' : 'status-error'}"></div>
+                  <span>${this.connectionStatus}</span>
+                </div>
+                ${this.isFullscreen
+                  ? `<button class="minimize-btn" title="Minimize">&#8211;</button>`
+                  : `<button class="fullscreen-btn" title="Fullscreen">&#x26F6;</button>`
+                }
+                <button class="close-btn" title="Close">&times;</button>
               </div>
             </div>
-            `;
-          }
-          if (m.sender === 'bot') {
-            return `
-            <div class="message-row bot">
-              <div class="bubble bot">
-              <div class="message-text">${m.text}</div>
-              <div class="timestamp">${this.formatTime(m.timestamp)}</div>
-              </div>
+            
+            <div class="messages">
+              ${this.messages.map(m => {
+                if (m.sender === 'system') {
+                  return `
+                    <div class="message-row system">
+                      <div class="bubble system">
+                        <div class="system-icon">📢</div>
+                        <div class="message-text">${m.text}</div>
+                        <div class="timestamp">${this.formatTime(m.timestamp)}</div>
+                      </div>
+                    </div>
+                  `;
+                }
+                if (m.sender === 'bot') {
+                  return `
+                    <div class="message-row bot">
+                      <div class="bubble bot">
+                        <div class="message-text">${m.text}</div>
+                        <div class="timestamp">${this.formatTime(m.timestamp)}</div>
+                      </div>
+                    </div>
+                  `;
+                }
+                return `
+                  <div class="message-row user">
+                    <div class="bubble user">
+                      <div class="message-text">${m.text}</div>
+                      <div class="timestamp">${this.formatTime(m.timestamp)}</div>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
             </div>
-            `;
-          }
-          return `
-            <div class="message-row user">
-            <div class="bubble user">
-              <div class="message-text">${m.text}</div>
-              <div class="timestamp">${this.formatTime(m.timestamp)}</div>
+            
+            <div class="input-area">
+              <input class="chat-input" type="text" placeholder="Type a message..." autofocus>
+              <input class="file-input" type="file" accept="image/*,.md,.markdown" style="display:none">
+              <button class="attach-btn" title="Attach file">
+                <svg viewBox="0 0 24 24" fill="none" width="20" height="20" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21.44 11.05l-9.19 9.19a5 5 0 01-7.07-7.07l9.19-9.19a3 3 0 014.24 4.24l-9.19 9.19a1 1 0 01-1.41-1.41l9.19-9.19" />
+                </svg>
+              </button>
+              <button class="send-btn">
+                <svg class="send-icon" viewBox="0 0 24 24" fill="white">
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+                </svg>
+              </button>
             </div>
-            </div>
-          `;
-          }).join('')}
-        </div>
-        
-        <div class="input-area">
-          <input class="chat-input" type="text" placeholder="Type a message..." autofocus>
-          <input class="file-input" type="file" accept="image/*,.md,.markdown" style="display:none">
-          <button class="attach-btn" title="Attach file">
-            <svg viewBox="0 0 24 24" fill="none" width="20" height="20" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21.44 11.05l-9.19 9.19a5 5 0 01-7.07-7.07l9.19-9.19a3 3 0 014.24 4.24l-9.19 9.19a1 1 0 01-1.41-1.41l9.19-9.19" />
-            </svg>
+          </div>
+        ` : `
+          <button class="toggle-btn">
+            ${
+              this.logoPath
+                ? `<img src="${this.logoPath}" alt="Qsc" class="jumpLoop">`
+                : `<span class="qsc-span jumpLoop">Qsc</span>`
+            }
+            ${this.unreadCount > 0 ? `<div class="unread-count">${this.unreadCount}</div>` : ''}
           </button>
-          <button class="send-btn">
-          <svg class="send-icon" viewBox="0 0 24 24" fill="white">
-            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
-          </svg>
-          </button>
-        </div>
-        </div>
-      ` : `
-        <button class="toggle-btn">
-        ${
-          this.logoPath
-          ? `<img src="${this.logoPath}" alt="Qsc" class="jumpLoop">`
-          : `<span class="qsc-span jumpLoop">Qsc</span>`
-        }
-        ${this.unreadCount > 0 ? `<div class="unread-count">${this.unreadCount}</div>` : ''}
-        </button>
-      `}
+        `}
       </div>
     `;
 
@@ -821,9 +805,8 @@ class QscChatbot extends HTMLElement {
         const file = e.target.files[0];
         if (!file) return;
         if (file.type.startsWith('image/')) {
-          // Send image as base64
           const reader = new FileReader();
-          reader.onload = () => {
+          reader.onload = async () => {
             const base64 = reader.result;
             this.messages.push({
               id: Date.now(),
@@ -835,13 +818,24 @@ class QscChatbot extends HTMLElement {
             this.scrollToBottom();
             if (this.ws && this.connectionStatus === 'connected') {
               this.ws.send(JSON.stringify({ type: 'image', data: base64, filename: file.name }));
+            } else if (this.useRest) {
+              try {
+               const response = await fetch(this.restUrl, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ id: this.restClientId, type: 'image', data: base64, filename: file.name })
+                });
+                const data = await response.json();  
+                this.handleRestBotResponse(data);
+              } catch (err) {
+                console.error('Error sending image via REST:', err);
+              }
             }
           };
           reader.readAsDataURL(file);
         } else if (file.name.endsWith('.md') || file.name.endsWith('.markdown')) {
-          // Send markdown file as text
           const reader = new FileReader();
-          reader.onload = () => {
+          reader.onload = async () => {
             const content = reader.result;
             this.messages.push({
               id: Date.now(),
@@ -853,6 +847,18 @@ class QscChatbot extends HTMLElement {
             this.scrollToBottom();
             if (this.ws && this.connectionStatus === 'connected') {
               this.ws.send(JSON.stringify({ type: 'markdown', data: content, filename: file.name }));
+            } else if (this.useRest) {
+              try {
+                const response = await fetch(this.restUrl, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ id: Date.now(), type: 'markdown', data: content, filename: file.name })
+                });
+                const data = await response.json();
+                this.handleRestBotResponse(data);
+              } catch (err) {
+                console.error('Error sending markdown via REST:', err);
+              }
             }
           };
           reader.readAsText(file);
@@ -864,3 +870,4 @@ class QscChatbot extends HTMLElement {
 }
 
 customElements.define('qsc-chatbot', QscChatbot);
+
