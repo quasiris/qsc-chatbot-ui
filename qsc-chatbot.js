@@ -1,3 +1,6 @@
+import { marked } from 'marked';
+import createDOMPurify from 'dompurify';
+const DOMPurify = createDOMPurify(window);
 class QscChatbot extends HTMLElement {
   constructor() {
     super(); this.attachShadow({mode:'open'});
@@ -72,10 +75,15 @@ class QscChatbot extends HTMLElement {
 
   _pushBot(d) {
     let html = '';
-    if(d.type==='image'){ html=`<img src="${d.data}" style="max-width:200px;max-height:200px;">`;}
-    else if(d.type==='markdown') {html=window.marked
-      ?`<div class="markdown">${window.marked.parse(d.data)}</div>`
-      :`<pre class="markdown">${d.data}</pre>`;
+    if(d.type==='image'){ 
+      html=`<img src="${d.data}" style="max-width:200px;max-height:200px;">`;
+    }else if(d.type==='markdown') {
+      try {
+          const raw = marked.parse(d.data);
+          html = `<div class="markdown">${DOMPurify.sanitize(raw)}</div>`;
+        } catch {
+          html = `<pre class="markdown">${d.data}</pre>`;
+        }
     } else {
       html = d.text || '';
     }
@@ -130,12 +138,12 @@ class QscChatbot extends HTMLElement {
       html = `<img src="${data.data}" alt="server image" style="max-width:200px;max-height:200px;">`;
     } else if (data.type === 'markdown') {
       try {
-        const md = window.marked ? window.marked.parse(data.data)
-                  : (new window.showdown.Converter()).makeHtml(data.data);
-        html = `<div class="markdown">${md}</div>`;
-      } catch {
-        html = `<pre class="markdown">${data.data}</pre>`;
-      }
+          const raw = marked.parse(data.data);
+          html = `<div class="markdown">${DOMPurify.sanitize(raw)}</div>`;
+        } catch {
+          // fallback for unexpected parse errors
+          html = `<pre class="markdown">${data.data}</pre>`;
+        }
     } else {
       html = data.text || data.message || data.data;
     }
@@ -837,9 +845,16 @@ class QscChatbot extends HTMLElement {
           const reader = new FileReader();
           reader.onload = async () => {
             const content = reader.result;
+            let html;
+            try {
+              const raw = marked.parse(content);
+              html = `<div class="markdown">${DOMPurify.sanitize(raw)}</div>`;
+            } catch {
+              html = `<pre class="markdown">${content}</pre>`;
+            }
             this.messages.push({
               id: Date.now(),
-              text: `<pre class="markdown">${content}</pre>`,
+              text: html,
               sender: 'user',
               timestamp: new Date()
             });

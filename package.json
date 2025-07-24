@@ -1,20 +1,20 @@
 {
   "name": "@quasiris/qsc-chatbot-ui",
-  "version": "1.2.9",
+  "version": "1.3.0",
   "description": "A plugin that injects a Chatbot UI with WS/REST support",
   "main": "lib/index.js",
   "unpkg": "qsc-chatbot.js",
   "module": "lib/index.esm.js",
   "scripts": {
-     "build": "babel src --out-dir lib --extensions \".js,.jsx,.ts,.tsx\" --copy-files",
+    "build": "babel src --out-dir lib --extensions \".js,.jsx,.ts,.tsx\" --copy-files && rollup -c",
     "prepublishOnly": "npm run build"
   },
   "publishConfig": {
     "access": "public"
   },
- "files": [
+  "files": [
     "lib",
-    "qsc-chatbot.js"
+    "dist/qsc-chatbot.js"
   ],
   "keywords": [
     "Quasiris",
@@ -43,6 +43,13 @@
     "@babel/core": "^7.27.4",
     "@babel/preset-env": "^7.27.2",
     "@babel/preset-react": "^7.27.1",
-    "@babel/preset-typescript": "^7.27.1"
+    "@babel/preset-typescript": "^7.27.1",
+    "@rollup/plugin-commonjs": "^28.0.6",
+    "@rollup/plugin-node-resolve": "^16.0.1",
+    "rollup": "^4.45.1"
+  },
+  "dependencies": {
+    "dompurify": "^3.2.6",
+    "marked": "^16.1.1"
   }
 }
