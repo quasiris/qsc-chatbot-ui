@@ -365,8 +365,9 @@
         </div>
         <div class="demo-box">
           <img src="./assets/QscChatbot.png" alt="QscChatbot" />
-          <qsc-chatbot 
-            ws-url="http://localhost:3000/ws/chat"
+          <qsc-chatbot
+            rest-url="http://localhost:3000/chat", 
+            enable-rest-fallback="true",   
             header-title="QSC Chatbot"
             assistant-name="QSC Assistant"
             logo-path="./assets/bot.png"
@@ -416,6 +417,6 @@
     QSC Chatbot Component | Professional Web Interface
   </div>
 
-  <script src="./dist/qsc-chatbot.js"></script>
+  <script src="https://unpkg.com/@quasiris/qsc-chatbot-ui@latest/dist/qsc-chatbot.js"></script>
 </body>
 </html>

@@ -19,7 +19,7 @@ You can use the chatbot directly in any HTML page via CDN:
 
 ```html
 <!-- Add this script tag to load the web component -->
-<script src="https://unpkg.com/@quasiris/qsc-chatbot-ui@latest/qsc-chatbot.js"></script>
+<script src="https://unpkg.com/@quasiris/qsc-chatbot-ui@latest/dist/qsc-chatbot.js"></script>
 
 <!-- Use the custom element anywhere in your HTML -->
 <qsc-chatbot
