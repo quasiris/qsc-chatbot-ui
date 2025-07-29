@@ -89,7 +89,7 @@ export default function Chatbot({
             ...prev,
             {
               id: Date.now(),
-              text: `<pre class="markdown">${data.data}</pre>`,
+              text: data.data,
               sender: 'bot',
               timestamp: new Date(),
             },
@@ -193,7 +193,7 @@ export default function Chatbot({
           ...prev,
           {
             id: Date.now(),
-            text: `<pre class="markdown">${content}</pre>`,
+            text: content,
             sender: 'user',
             timestamp: new Date(),
           },
