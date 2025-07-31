@@ -1478,6 +1478,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       }
 
       _pushBot(d$1) {
+        this.messages = this.messages.filter(m => !m.isLoading); 
         let html = '';
         if(d$1.type==='image'){ 
           html=`<img src="${d$1.data}" style="max-width:200px;max-height:200px;">`;
@@ -1499,6 +1500,18 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         const input=this.shadowRoot.querySelector('.chat-input');
         const value=input.value.trim(); if(!value) return;
         this.messages.push({id:Date.now(),text:value,sender:'user',timestamp:new Date()});
+        const loadingId = Date.now() + '-loading';
+        this.messages.push({
+          id: loadingId,
+          text: `
+            <div class="typing-indicator">
+              <span></span><span></span><span></span>
+            </div>
+          `,
+          sender: 'bot',
+          timestamp: new Date(),
+          isLoading: true
+        });
         this.renderMessages(); this.scrollToBottom(); input.value='';
 
         if(this.useRest) {
@@ -1537,6 +1550,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       }
 
       handleRestBotResponse(data) {
+        this.messages = this.messages.filter(m => !m.isLoading);
         let html = '';
         if (data.type === 'image') {
           html = `<img src="${data.data}" alt="server image" style="max-width:200px;max-height:200px;">`;
@@ -1664,7 +1678,47 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         z-index: 9999;
         transition: transform 0.3s ease;
       }
-      
+     .typing-indicator {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 20px;
+        padding: 0 10px;
+        background: #f1f1f1;
+        border-radius: 20px;
+      }
+
+      .typing-indicator span {
+        display: inline-block;
+        width: 5px;
+        height: 5px;
+        margin: 0 2px;
+        background-color: var(--primary);
+        border-radius: 50%;
+        animation: bounce 1.4s infinite ease-in-out both;
+      }
+
+      .typing-indicator span:nth-child(1) {
+        animation-delay: 0s;
+      }
+      .typing-indicator span:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+      .typing-indicator span:nth-child(3) {
+        animation-delay: 0.4s;
+      }
+
+      @keyframes bounce {
+        0%, 80%, 100% {
+          transform: scale(0);
+          opacity: 0.3;
+        } 
+        40% {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+
       .toggle-btn {
         position: relative;
         background: var(--primary);
@@ -2021,7 +2075,6 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         border-radius: 8px;
         padding: 10px;
         font-family: monospace;
-        white-space: pre-wrap;
         max-width: 100%;
         overflow-x: auto;
         color: black !important;
