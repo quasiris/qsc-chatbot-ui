@@ -2113,7 +2113,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         height: auto !important;
         border-radius: 0 !important;
         position: fixed !important;
-        top: 152px;left: 0; right: 0; bottom: 60px;
+        top: 0;left: 0; right: 0; bottom: 0;
         z-index: 2147483647 !important;
       }
       .chat-window.minimized {
