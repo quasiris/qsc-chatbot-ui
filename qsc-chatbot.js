@@ -269,7 +269,7 @@ class QscChatbot extends HTMLElement {
       
       .chatbot-container {
         position: fixed;
-        bottom: 60px;
+        bottom: 30px;
         right: 24px;
         z-index: 9999;
         transition: transform 0.3s ease;

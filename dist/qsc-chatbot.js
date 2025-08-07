@@ -1673,7 +1673,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       
       .chatbot-container {
         position: fixed;
-        bottom: 60px;
+        bottom: 30px;
         right: 24px;
         z-index: 9999;
         transition: transform 0.3s ease;
