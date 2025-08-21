@@ -1414,6 +1414,19 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         this.restClientId = null;
         this.editingId = null;
         this._copyTimers = {}; 
+         this._copySVG = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"></path>
+      </svg>
+    `;
+        this._checkSVG = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20 6L9 17l-5-5"></path>
+      </svg>
+    `;
       }
 
       async connectedCallback() {
@@ -1620,7 +1633,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       }
 
       handleKeyDown(e) {
-        if (e.target.classList.contains('chat-input') && e.key === 'Enter') {
+        if (e.target.classList.contains('chat-input') && e.key === 'Enter' && !e.shiftKey) {
           this.handleSend();
         }
       }
@@ -1678,6 +1691,84 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         tmp.innerHTML = html;
         return tmp.textContent || tmp.innerText || '';
       }
+      _attachCodeCopyButtons() {
+      const container = this.shadowRoot.querySelector('.messages');
+      if (!container) return;
+
+      const pres = Array.from(container.querySelectorAll('.message-text .markdown pre'));
+
+      pres.forEach(pre => {
+        if (pre._qsc_copy_attached) return;
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'copy-code-btn';
+        btn.title = 'Copy code';
+
+        btn.innerHTML = `
+       ${this._copySVG}
+    `;
+
+        btn.addEventListener('click', async (evt) => {
+          evt.stopPropagation();
+          try {
+            await this._copyCodeFromElement(pre);
+            btn.classList.add('copied');
+            const iconContainer = btn.querySelector('svg');
+            if (iconContainer) iconContainer.outerHTML = this._checkSVG;
+
+            setTimeout(() => {
+              btn.classList.remove('copied');
+              if (btn.querySelector('svg')) btn.querySelector('svg').outerHTML = this._copySVG;
+            }, 1200);
+          } catch (err) {
+              btn.innerHTML = `
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        `;
+            btn.classList.add('copy-failed');
+            setTimeout(() => {
+              btn.classList.remove('copy-failed');
+              btn.innerHTML = this._copySVG;
+            }, 1200);
+          }
+        });
+
+        pre.style.position = pre.style.position || 'relative';
+        pre.appendChild(btn);
+        pre._qsc_copy_attached = true;
+      });
+    }
+
+
+      async _copyCodeFromElement(preEl) {
+        const codeEl = preEl.querySelector('code') || preEl;
+        const text = codeEl.textContent || codeEl.innerText || '';
+        if (!text) throw new Error('No code to copy');
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          return new Promise((resolve, reject) => {
+            try {
+              const ta = document.createElement('textarea');
+              ta.value = text;
+              ta.style.position = 'fixed';
+              ta.style.left = '-9999px';
+              document.body.appendChild(ta);
+              ta.select();
+              const ok = document.execCommand('copy');
+              ta.remove();
+              ok ? resolve() : reject(new Error('execCommand failed'));
+            } catch (e) {
+              reject(e);
+            }
+          });
+        }
+    }
 
       _findIndexById(id) {
         return this.messages.findIndex(m => String(m.id) === String(id));
@@ -1686,6 +1777,22 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       _removeMessagesAfterIndex(idx) {
         if (idx < 0) return;
         this.messages = this.messages.slice(0, idx + 1);
+      }
+      
+
+      _handleEdit(id) {
+        const idx = this._findIndexById(id);
+        if (idx === -1) return;
+        const msg = this.messages[idx];
+        if (msg.sender !== 'user') return;
+        const chatInput = this.shadowRoot.querySelector('.chat-input');
+        const plain = this._stripHtml(msg.text);
+        if (chatInput) {
+          chatInput.value = plain;
+          chatInput.focus();
+          this.editingId = id;
+          chatInput.placeholder = 'Edit message...';
+        }
       }
       async _handleCopy(id) {
         const idx = this._findIndexById(id);
@@ -1726,6 +1833,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             success = false;
           }
         }
+
         const btn = this.shadowRoot && this.shadowRoot.querySelector(`.copy-btn[data-msg-id="${id}"]`);
         if (!btn) return;
 
@@ -1738,48 +1846,26 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         const originalClass = btn.className;
 
         if (success) {
-          btn.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M20 6L9 17l-5-5"></path>
-        </svg>
-        <span class="copied-label">Copied</span>
-      `;
+          btn.innerHTML = this._checkSVG;
           btn.className = originalClass + ' copied';
         } else {
           btn.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <line x1="18" y1="6" x2="6" y2="18"></line>
           <line x1="6" y1="6" x2="18" y2="18"></line>
         </svg>
-        <span class="copied-label">Failed</span>
       `;
           btn.className = originalClass + ' copy-failed';
         }
-
         this._copyTimers[id] = setTimeout(() => {
           try {
             btn.innerHTML = originalHtml;
             btn.className = originalClass;
           } catch (e) {
-            // ignore DOM race
           }
           delete this._copyTimers[id];
         }, 1000);
-      }
-
-      _handleEdit(id) {
-        const idx = this._findIndexById(id);
-        if (idx === -1) return;
-        const msg = this.messages[idx];
-        if (msg.sender !== 'user') return;
-        const chatInput = this.shadowRoot.querySelector('.chat-input');
-        const plain = this._stripHtml(msg.text);
-        if (chatInput) {
-          chatInput.value = plain;
-          chatInput.focus();
-          this.editingId = id;
-          chatInput.placeholder = 'Edit message...';
-        }
       }
 
       renderMessages() {
@@ -1789,10 +1875,10 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           const showCopy = (!m.isLoading) || Boolean(m.copied);
           const actionsHtml = `
       <div class="message-actions" data-msg-id="${m.id}">
-        ${showCopy ? `<button class="message-action-btn copy-btn" data-msg-id="${m.id}" title="Copy"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <rect x="9" y="9" width="13" height="13" rx="2"></rect>
-        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-      </svg></button>` : ''}
+        ${showCopy ? `<button class="message-action-btn copy-btn" data-msg-id="${m.id}" title="Copy" aria-label="Copy message">
+            ${this._copySVG}
+          </button>` : ''}
+
         ${m.sender === 'user' && !m.isLoading ? `<button class="message-action-btn edit-btn" data-msg-id="${m.id}" title="Edit"> <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 20h9"></path>
         <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
@@ -1824,7 +1910,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           return `
         <div class="message-row user">
             <div class="bubble user">
-              <div class="message-text" data-msg-id="${m.id}">${m.text}</div>
+              <div class="message-text" data-msg-id="${m.id}"><p>${m.text}</p></div>
               <div class="timestamp">${this.formatTime(m.timestamp)}</div>
             </div>
               ${actionsHtml}
@@ -1842,6 +1928,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         container._qsc_actions_bound = true;
       }
         this.scrollToBottom();
+        this._attachCodeCopyButtons();
       }
 
       render() {
@@ -1934,6 +2021,11 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         transform: translateY(4px);
         transition: opacity .14s ease, transform .14s ease;
       }
+        .message-action-btn svg {
+          width: 14px;
+          height: 14px;
+          display: block;
+        }
       .message-action-btn {
         background: transparent;
         border: none;
@@ -1948,20 +2040,16 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         align-items: center;
         justify-content: center;
       }
-      .message-action-btn .copied-label {
-        font-size: 11px;
-        color: var(--text-secondary);
-        line-height: 1;
-        white-space: nowrap;
-      }
-
       .message-action-btn.copied {
-        color: var(--success);
+        background: rgba(16,124,16,0.08);
+        color: #107c10;
       }
 
       .message-action-btn.copy-failed {
+        background: rgba(168,0,0,0.06);
         color: var(--error);
       }
+
       .message-action-btn:hover { background: rgba(0,0,0,0.04); }
       .message-row:hover .message-actions,
       .message-row:focus-within .message-actions {
@@ -2134,6 +2222,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       .messages {
         flex: 1;
         overflow-y: auto;
+        overflow-x: hidden;
         padding: 15px;
         display: flex;
         flex-direction: column;
@@ -2159,7 +2248,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       .bubble {
         padding: 10px 12px;
         border-radius: 18px;
-        max-width: 98%;
+        max-width: 87%;
         position: relative;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05);
         line-height: 1.5;
@@ -2200,6 +2289,10 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       .message-text {
         flex: 1;
         font-size: 13px;
+        font-family: monospace;
+      } 
+      .message-text p {
+        margin: 0 !important;
       }
       .timestamp {
         font-size: 11px;
@@ -2334,7 +2427,35 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         overflow-x: auto;
         color: black !important;
       }
-      
+      .markdown pre {
+        position: relative;
+        padding: 5px;
+        background-color: #f0f0f0;
+        border-radius: 15px;
+        overflow-x: auto;
+      }
+        .copy-code-btn {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        background: rgba(0,0,0,0.06);
+        border: none;
+        padding: 6px 8px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        z-index: 10;
+      }
+
+      .copy-code-btn svg { width: 14px; height: 14px; }
+
+      .copy-code-btn.copied {
+        background: rgba(16,124,16,0.08);
+        color: #107c10;
+      }
       @media (max-width: 480px) {
         .chatbot-container {
           bottom: 16px;
@@ -2467,7 +2588,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             </div>
             
             <div class="input-area">
-              <input class="chat-input" type="text" placeholder="Type a message..." autofocus>
+              <textarea class="chat-input" rows="1" placeholder="Type a message..." autofocus></textarea>
               <input class="file-input" type="file" accept="image/*,.md,.markdown" style="display:none">
               <button class="attach-btn" title="Attach file">
                 <svg viewBox="0 0 24 24" fill="none" width="20" height="20" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
