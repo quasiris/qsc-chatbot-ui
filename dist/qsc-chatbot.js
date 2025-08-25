@@ -1504,7 +1504,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       _pushSystem(txt) {
         this.messages.push({id:Date.now(),text:txt,sender:'system',timestamp:new Date()});
         if(!this.isOpen){ this.showBroadcastPopup(txt); this.unreadCount++; }
-        this.renderMessages();
+        this.renderMessages({ autoScroll: 'bottom' });
       }
 
       _pushBot(d$1) {
@@ -1523,7 +1523,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           html = d$1.text || '';
         }
         this.messages.push({id:Date.now(),text:html,sender:'bot',timestamp:new Date()});
-        this.renderMessages();
+        this.renderMessages({ autoScroll: 'bottom' });
       }
 
       async handleSend() {
@@ -1551,12 +1551,12 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
               timestamp: new Date(),
               isLoading: true
             });
-            this.renderMessages();
-            this.scrollToBottom();
+            this.renderMessages({ autoScroll: 'bottom' });
 
             const originalEditId = this.editingId;
             this.editingId = null;
             input.value = '';
+            input.style.height = '1px';
             input.placeholder = 'Type a message...';
 
             if (this.useRest) {
@@ -1594,9 +1594,9 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           isLoading: true
         });
 
-        this.renderMessages();
-        this.scrollToBottom();
-        input.value = '';
+        this.renderMessages({ autoScroll: 'bottom' });
+         input.value = '';
+        input.style.height = 'auto';
 
         if (this.useRest) {
           try {
@@ -1631,10 +1631,21 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           this.handleSend();
         }
       }
-
+      _autoResizeChatInput() {
+        const input = this.shadowRoot && this.shadowRoot.querySelector('.chat-input');
+        if (!input) return;
+        input.style.height = '1px';
+        input.style.height = (input.scrollHeight) + 'px';
+      }
       handleKeyDown(e) {
-        if (e.target.classList.contains('chat-input') && e.key === 'Enter' && !e.shiftKey) {
-          this.handleSend();
+       if (!e.target.classList.contains('chat-input')) return;
+        if (e.key === 'Enter') {
+          if (e.shiftKey) {
+            setTimeout(() => this._autoResizeChatInput(), 0);
+          } else {
+            e.preventDefault();
+            this.handleSend();
+          }
         }
       }
 
@@ -1655,8 +1666,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           html = data.text || data.message || data.data;
         }
         this.messages.push({ id: Date.now(), text: html, sender: 'bot', timestamp: new Date() });
-        this.renderMessages();
-        this.scrollToBottom();
+        this.renderMessages({ autoScroll: 'bottom' });
       }
       scrollToBottom() {
         setTimeout(() => {
@@ -1691,6 +1701,209 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         tmp.innerHTML = html;
         return tmp.textContent || tmp.innerText || '';
       }
+      _splitIntoJsonAndTextSegments(raw) {
+        const n = raw.length;
+        let i = 0;
+        let buf = '';
+        const segments = [];
+
+        const pushTextBuf = () => {
+          if (buf.length) {
+            segments.push({ type: 'text', content: buf });
+            buf = '';
+          }
+        };
+
+        while (i < n) {
+          const ch = raw[i];
+
+          if ((ch === '{' || ch === '[')) {
+            pushTextBuf();
+
+            const start = i;
+            const stack = [ch];
+            i++; 
+            let inString = false;
+            let escaped = false;
+
+            for (; i < n; i++) {
+              const c = raw[i];
+
+              if (inString) {
+                if (escaped) {
+                  escaped = false;
+                  continue;
+                }
+                if (c === '\\') {
+                  escaped = true;
+                  continue;
+                }
+                if (c === '"') {
+                  inString = false;
+                  continue;
+                }
+                continue;
+              } else {
+                if (c === '"') {
+                  inString = true;
+                  continue;
+                }
+                if (c === '{' || c === '[') {
+                  stack.push(c);
+                  continue;
+                }
+                if (c === '}' || c === ']') {
+                  const last = stack[stack.length - 1];
+                  if ((c === '}' && last === '{') || (c === ']' && last === '[')) {
+                    stack.pop();
+                  } else {
+                    stack.pop();
+                  }
+                  if (stack.length === 0) {
+                    i++;
+                    break;
+                  }
+                  continue;
+                }
+              }
+            }
+            const jsonSub = raw.slice(start, i);
+            segments.push({ type: 'json', content: jsonSub });
+            continue;
+          }
+
+          buf += ch;
+          i++;
+        }
+
+        pushTextBuf();
+
+        return segments
+          .map(s => ({ type: s.type, content: (s.content || '') }))
+          .filter(s => s.content.trim().length > 0);
+      }
+      _splitAndRenderMultipleJsons() {
+        const container = this.shadowRoot.querySelector('.messages');
+        if (!container) return;
+
+        // find all pre > code nodes that look like JSON or start with { or [
+        const codeNodes = Array.from(container.querySelectorAll('pre code'))
+          .filter(code => {
+            const cls = String(code.className || '').toLowerCase();
+            const txt = (code.textContent || '').trim();
+            return cls.includes('language-json') || txt.startsWith('{') || txt.startsWith('[');
+          });
+
+        const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        codeNodes.forEach(codeEl => {
+          const preEl = codeEl.closest('pre');
+          if (!preEl) return;
+
+          const raw = codeEl.textContent || '';
+          const segments = this._splitIntoJsonAndTextSegments(raw);
+
+          if (segments.length <= 1) return;
+
+          let html = '';
+          segments.forEach(seg => {
+            if (seg.type === 'text') {
+              const text = seg.content.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+              if (text.length === 0) {
+                html += `<p>${esc(seg.content)}</p>`;
+              } else {
+                text.forEach(p => { html += `<p>${esc(p)}</p>`; });
+              }
+            } else if (seg.type === 'json') {
+              let pretty = seg.content;
+              try {
+                const parsed = JSON.parse(seg.content);
+                pretty = JSON.stringify(parsed, null, 2);
+              } catch (e) {
+                pretty = seg.content.trim();
+              }
+              html += `<pre style="position: relative;"><code class="language-json">${esc(pretty)}</code></pre>\n`;
+            }
+          });
+
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = html;
+          Array.from(wrapper.childNodes).forEach(node => {
+            preEl.parentNode.insertBefore(node, preEl);
+          });
+          // remove the original pre (and its code child)
+          preEl.remove();
+        });
+      }
+
+      _formatAndHighlightJson() {
+        const container = this.shadowRoot.querySelector('.messages');
+        if (!container) return;
+
+        // find candidate <pre><code> blocks
+        const codeEls = Array.from(container.querySelectorAll('pre code'))
+          .filter(code => {
+            const cls = String(code.className || '').toLowerCase();
+            const txt = (code.textContent || '').trim();
+            return cls.includes('language-json') || txt.startsWith('{') || txt.startsWith('[');
+          });
+
+        const esc = s => String(s)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+
+        codeEls.forEach(codeEl => {
+          if (codeEl._qsc_json_highlighted) return;
+
+          let raw = codeEl.textContent || '';
+          let pretty = raw;
+
+          try {
+            const parsed = JSON.parse(raw);
+            pretty = JSON.stringify(parsed, null, 2);
+          } catch {
+            pretty = raw.trim();
+          }
+
+          const keyStore = [];
+          const strStore = [];
+
+          pretty = pretty.replace(/"((?:\\.|[^"\\])*)"\s*(?=:)/g, (m) => {
+            const idx = keyStore.length;
+            keyStore.push(m); 
+            return `@@KEY${idx}@@`;
+          });
+
+          pretty = pretty.replace(/"((?:\\.|[^"\\])*)"/g, (m) => {
+            const idx = strStore.length;
+            strStore.push(m); 
+            return `@@STR${idx}@@`;
+          });
+
+          let html = esc(pretty);
+
+          html = html.replace(/\b-?\d+(\.\d+)?([eE][+\-]?\d+)?\b/g, `<span class="json-number">$&</span>`);
+
+          html = html.replace(/\b(true|false|null)\b/g, `<span class="json-boolean">$1</span>`);
+
+          html = html.replace(/([{}\[\],:])/g, `<span class="json-punctuation">$1</span>`);
+
+          keyStore.forEach((orig, i) => {
+            const replacement = `<span class="json-key">${esc(orig)}</span>`;
+            html = html.replace(new RegExp(esc(`@@KEY${i}@@`), 'g'), replacement);
+          });
+
+          strStore.forEach((orig, i) => {
+            const replacement = `<span class="json-string">${esc(orig)}</span>`;
+            html = html.replace(new RegExp(esc(`@@STR${i}@@`), 'g'), replacement);
+          });
+
+          codeEl.innerHTML = html;
+          codeEl._qsc_json_highlighted = true;
+        });
+      }
+
       _attachCodeCopyButtons() {
       const container = this.shadowRoot.querySelector('.messages');
       if (!container) return;
@@ -1779,19 +1992,213 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         this.messages = this.messages.slice(0, idx + 1);
       }
       
+      _createXSVG() {
+        return `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    `;
+      }
+      _escapeHtml(str = '') {
+          return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        }
+      async _handleSave(id) {
+        const idx = this._findIndexById(id);
+        if (idx === -1) return;
+        const ta = this.shadowRoot.querySelector(`.inline-edit-textarea[data-msg-id="${id}"]`);
+        if (!ta) return;
+
+        const newVal = ta.value.trim();
+        if (!newVal) {
+          return;
+        }
+
+        this.messages[idx].text = newVal;
+        this.messages[idx].timestamp = new Date();
+
+        this._removeMessagesAfterIndex(idx);
+
+        const loadingId = Date.now() + '-loading';
+        this.messages.push({
+          id: loadingId,
+          text: `
+        <div class="typing-indicator">
+          <span></span><span></span><span></span>
+        </div>
+      `,
+          sender: 'bot',
+          timestamp: new Date(),
+          isLoading: true
+        });
+
+        const originalEditId = id;
+        this.editingId = null;
+        this.renderMessages({ autoScroll: 'bottom' });
+
+        if (this.useRest) {
+          try {
+            const res = await fetch(this.restUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId })
+            });
+            const data = await res.json();
+            this.handleRestBotResponse(data);
+          } catch (err) {
+            this._pushSystem("Sorry, can't reach server.");
+          }
+        } else if (this.ws && this.connectionStatus === 'connected') {
+          this.ws.send(JSON.stringify({ type: 'message', text: newVal, editedFrom: originalEditId }));
+        } else {
+          this._pushSystem("Connection error.");
+        }
+      }
+
+      _handleCancel(id) {
+        if (String(this.editingId) !== String(id)) {
+          this.editingId = null;
+        } else {
+          this.editingId = null;
+        }
+        this.renderMessages({ autoScroll: 'bottom' });
+      }
 
       _handleEdit(id) {
         const idx = this._findIndexById(id);
         if (idx === -1) return;
         const msg = this.messages[idx];
         if (msg.sender !== 'user') return;
-        const chatInput = this.shadowRoot.querySelector('.chat-input');
+
+        if (this.editingId && this.editingId !== id) {
+          this.editingId = null;
+        }
+
+        this.editingId = (this.editingId === id) ? null : id;
+        this.renderMessages({ autoScroll: 'intoView', targetId: id });
+
+        const msgEl = this.shadowRoot.querySelector(`.message-text[data-msg-id="${id}"]`);
+        if (!msgEl) {
+          
+          return;
+        }
+        msgEl.dataset._originalHtml = msgEl.innerHTML;
+
         const plain = this._stripHtml(msg.text);
-        if (chatInput) {
-          chatInput.value = plain;
-          chatInput.focus();
-          this.editingId = id;
-          chatInput.placeholder = 'Edit message...';
+
+        msgEl.innerHTML = '';
+
+        const ta = document.createElement('textarea');
+        ta.className = 'inline-edit';
+        ta.value = plain;
+        ta.rows = 4;
+        ta.setAttribute('aria-label', 'Edit message');
+        ta.addEventListener('keydown', (e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            saveBtn.click();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancelBtn.click();
+          }
+        });
+
+        const actionsWrap = document.createElement('div');
+        actionsWrap.className = 'inline-edit-actions';
+
+        const saveBtn = document.createElement('button');
+        saveBtn.type = 'button';
+        saveBtn.className = 'message-action-btn save-btn copied'; 
+        saveBtn.title = 'Save';
+        saveBtn.setAttribute('aria-label', 'Save message');
+        saveBtn.innerHTML = this._checkSVG;
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'message-action-btn cancel-btn';
+        cancelBtn.title = 'Cancel';
+        cancelBtn.setAttribute('aria-label', 'Cancel edit');
+        cancelBtn.innerHTML = this._createXSVG();
+
+        actionsWrap.appendChild(saveBtn);
+        actionsWrap.appendChild(cancelBtn);
+
+        msgEl.appendChild(ta);
+        msgEl.appendChild(actionsWrap);
+
+        ta.focus();
+        ta.selectionStart = ta.selectionEnd = ta.value.length;
+
+        cancelBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          this.editingId = null;
+          // restore original content
+          if (msgEl && msgEl.dataset && msgEl.dataset._originalHtml) {
+            msgEl.innerHTML = msgEl.dataset._originalHtml;
+            delete msgEl.dataset._originalHtml;
+          }
+          this.renderMessages({ autoScroll: 'intoView', targetId: id });
+        });
+
+        saveBtn.addEventListener('click', async (ev) => {
+          ev.stopPropagation();
+          const newVal = ta.value.trim();
+          if (!newVal) {
+            return;
+          }
+
+          this.messages[idx].text = newVal;
+          this.messages[idx].timestamp = new Date();
+
+          this._removeMessagesAfterIndex(idx);
+
+          const loadingId = Date.now() + '-loading';
+          this.messages.push({
+            id: loadingId,
+            text: `
+          <div class="typing-indicator">
+            <span></span><span></span><span></span>
+          </div>
+        `,
+            sender: 'bot',
+            timestamp: new Date(),
+            isLoading: true
+          });
+
+          this.renderMessages({ autoScroll: 'bottom'});
+
+          const originalEditId = id;
+          this.editingId = null;
+
+          if (this.useRest) {
+            try {
+              const res = await fetch(this.restUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId })
+              });
+              const data = await res.json();
+              this.handleRestBotResponse(data);
+            } catch (err) {
+              this._pushSystem("Sorry, can't reach server.");
+            }
+          } else if (this.ws && this.connectionStatus === 'connected') {
+            this.ws.send(JSON.stringify({ type: 'message', text: newVal, editedFrom: originalEditId }));
+          } else {
+            this._pushSystem("Connection error.");
+          }
+        });
+        if (this.editingId) {
+          const bubble = this.shadowRoot.querySelector(`[data-msg-id="${id}"]`);
+          if (bubble) {
+            bubble.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
         }
       }
       async _handleCopy(id) {
@@ -1868,68 +2275,134 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         }, 1000);
       }
 
-      renderMessages() {
+      renderMessages(opts = {}) {
+        const { autoScroll = 'bottom', targetId = null } = opts;
         const messagesDiv = this.shadowRoot.querySelector('.messages');
         if (!messagesDiv) return;
-        messagesDiv.innerHTML = this.messages.map(m => {
-          const showCopy = (!m.isLoading) || Boolean(m.copied);
-          const actionsHtml = `
-      <div class="message-actions" data-msg-id="${m.id}">
-        ${showCopy ? `<button class="message-action-btn copy-btn" data-msg-id="${m.id}" title="Copy" aria-label="Copy message">
-            ${this._copySVG}
-          </button>` : ''}
 
-        ${m.sender === 'user' && !m.isLoading ? `<button class="message-action-btn edit-btn" data-msg-id="${m.id}" title="Edit"> <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12 20h9"></path>
-        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
-      </svg></button>` : ''}
-      </div>
-    `;
+        messagesDiv.innerHTML = this.messages.map(m => {
+          const isEditing = String(m.id) === String(this.editingId);
+          const messageContent = (m.sender === 'user' && isEditing)
+            ? `<textarea class="inline-edit inline-edit-textarea" data-msg-id="${m.id}" rows="3">${this._stripHtml(m.text)}</textarea>`
+            : (m.sender === 'user'
+                ? `<div class="message-text" data-msg-id="${m.id}">${
+                m.isHtml ? m.text : `<p>${this._escapeHtml(m.text)}</p>`
+              }</div>`
+                : `<div class="message-text" data-msg-id="${m.id}">${m.text}</div>`);
+
+          let actionsHtml = '';
+          const showCopy = (!m.isLoading) || Boolean(m.copied);
+
+          if (m.sender === 'user' && isEditing) {
+            actionsHtml = `
+          <div class="message-actions" data-msg-id="${m.id}">
+            <button class="message-action-btn save-btn" data-msg-id="${m.id}" data-action="save" title="Save" aria-label="Save">
+              ${this._checkSVG}
+            </button>
+            <button class="message-action-btn cancel-btn" data-msg-id="${m.id}" data-action="cancel" title="Cancel" aria-label="Cancel">
+              ${this._createXSVG()}
+            </button>
+          </div>
+        `;
+          } else {
+            actionsHtml = `
+          <div class="message-actions" data-msg-id="${m.id}">
+            ${showCopy ? `<button class="message-action-btn copy-btn" data-msg-id="${m.id}" title="Copy" aria-label="Copy message">${this._copySVG}</button>` : ''}
+            ${m.sender === 'user' && !m.isLoading ? `<button class="message-action-btn edit-btn" data-msg-id="${m.id}" title="Edit" aria-label="Edit">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 20h9"></path>
+                  <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
+                </svg>
+              </button>` : ''}
+          </div>
+        `;
+          }
+
           if (m.sender === 'system') {
             return `
           <div class="message-row system">
-              <div class="bubble system">
-                <div class="system-icon">📢</div>
-                <div class="message-text" data-msg-id="${m.id}">${m.text}</div>
-                <div class="timestamp">${this.formatTime(m.timestamp)}</div>
-              </div>
+            <div class="bubble system">
+              <div class="system-icon">📢</div>
+              <div class="message-text" data-msg-id="${m.id}">${m.text}</div>
+              <div class="timestamp">${this.formatTime(m.timestamp)}</div>
+            </div>
           </div>
         `;
           }
+
           if (m.sender === 'bot') {
             return `
           <div class="message-row bot">
-              <div class="bubble bot">
-                <div class="message-text" data-msg-id="${m.id}">${m.text}</div>
-                <div class="timestamp">${this.formatTime(m.timestamp)}</div>
-              </div>
-              ${actionsHtml}
+            <div class="bubble bot">
+              ${messageContent}
+              <div class="timestamp">${this.formatTime(m.timestamp)}</div>
+            </div>
+            ${actionsHtml}
           </div>
         `;
           }
+
           return `
         <div class="message-row user">
-            <div class="bubble user">
-              <div class="message-text" data-msg-id="${m.id}"><p>${m.text}</p></div>
-              <div class="timestamp">${this.formatTime(m.timestamp)}</div>
-            </div>
-              ${actionsHtml}
+          <div class="bubble user">
+            ${messageContent}
+            <div class="timestamp">${this.formatTime(m.timestamp)}</div>
+          </div>
+          ${actionsHtml}
         </div>
       `;
         }).join('');
+
         const container = this.shadowRoot.querySelector('.messages');
-      if (container && !container._qsc_actions_bound) {
-        container.addEventListener('click', (e) => {
-          const copyBtn = e.target.closest('.copy-btn');
-          if (copyBtn) { this._handleCopy(copyBtn.dataset.msgId); return; }
-          const editBtn = e.target.closest('.edit-btn');
-          if (editBtn) { this._handleEdit(editBtn.dataset.msgId); return; }
-        });
-        container._qsc_actions_bound = true;
-      }
-        this.scrollToBottom();
+        if (container && !container._qsc_actions_bound) {
+          container.addEventListener('click', (e) => {
+            const saveBtn = e.target.closest('.save-btn') || e.target.closest('[data-action="save"]');
+            if (saveBtn) { this._handleSave(saveBtn.dataset.msgId); return; }
+
+            const cancelBtn = e.target.closest('.cancel-btn') || e.target.closest('[data-action="cancel"]');
+            if (cancelBtn) { this._handleCancel(cancelBtn.dataset.msgId); return; }
+
+            const copyBtn = e.target.closest('.copy-btn');
+            if (copyBtn) { this._handleCopy(copyBtn.dataset.msgId); return; }
+
+            const editBtn = e.target.closest('.edit-btn');
+            if (editBtn) { this._handleEdit(editBtn.dataset.msgId); return; }
+          });
+          container._qsc_actions_bound = true;
+        }
+
+        if (this.editingId) {
+          const ta = this.shadowRoot.querySelector(`.inline-edit-textarea[data-msg-id="${this.editingId}"]`);
+          if (ta) {
+            ta.focus();
+            ta.selectionStart = ta.selectionEnd = ta.value.length;
+            const keyHandler = (e) => {
+              if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                this._handleSave(this.editingId);
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                this._handleCancel(this.editingId);
+              }
+            };
+            ta.removeEventListener('keydown', ta._qsc_keyHandler);
+            ta.addEventListener('keydown', keyHandler);
+            ta._qsc_keyHandler = keyHandler;
+          }
+        }
+        this._splitAndRenderMultipleJsons(); 
+        this._formatAndHighlightJson();   
         this._attachCodeCopyButtons();
+
+
+        if (autoScroll === 'bottom') {
+        this.scrollToBottom();
+      } else if (autoScroll === 'intoView' && targetId) {
+        const el = this.shadowRoot.querySelector(`[data-msg-id="${targetId}"]`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
+      }
+
 
       render() {
         this.shadowRoot.innerHTML = `
@@ -1981,7 +2454,11 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         background: #f1f1f1;
         border-radius: 20px;
       }
-
+      .json-key { color: #a71d5d; }       
+      .json-string { color: #183691; }    
+      .json-number { color: #0086b3; }    
+      .json-boolean { color: #795da3; }   
+      .json-punctuation { color: #333; }
       .typing-indicator span {
         display: inline-block;
         width: 5px;
@@ -2021,11 +2498,11 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         transform: translateY(4px);
         transition: opacity .14s ease, transform .14s ease;
       }
-        .message-action-btn svg {
-          width: 14px;
-          height: 14px;
-          display: block;
-        }
+      .message-action-btn svg {
+        width: 14px;
+        height: 14px;
+        display: block;
+      }
       .message-action-btn {
         background: transparent;
         border: none;
@@ -2064,8 +2541,6 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           pointer-events: auto;
         }
       }
-      .message-actions { background: transparent; }
-
       .toggle-btn {
         position: relative;
         background: var(--primary);
@@ -2119,7 +2594,51 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         font-weight: bold;
         box-shadow: 0 2px 8px rgba(0,0,0,0.2);
       }
-      
+      .inline-edit {
+        width: 100%;
+        min-height: 64px;
+        max-height: 220px;
+        resize: vertical;
+        padding: 8px 10px;
+        font-size: 14px;
+        border-radius: 10px;
+        border: 1px solid rgba(0,0,0,0.08);
+        box-sizing: border-box;
+        background: var(--background-alt);
+        color: var(--text-primary);
+        font-family: inherit;
+      }
+
+      .inline-edit:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(0,120,212,0.08);
+      }
+
+      .inline-edit-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+        align-items: center;
+      }
+
+      .cancel-btn {
+        background: rgba(0,0,0,0.04);
+        border-radius: 6px;
+        padding: 6px;
+        border: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .inline-edit-actions svg,
+      .inline-edit textarea svg {
+        width: 14px;
+        height: 14px;
+        display: block;
+      }
+
       .chat-window {
         background: var(--background);
         border-radius: var(--border-radius);
@@ -2319,8 +2838,10 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         flex: 1;
         border: 1px solid rgba(0,0,0,0.1);
         border-radius: 24px;
-        padding: 12px 18px;
-        font-size: 15px;
+        padding: 12px 16px;
+        line-height: 20px;   
+        font-size: 13px;
+        box-sizing: border-box;
         background: var(--background-alt);
         color: var(--text-primary);
         transition: border 0.2s;
@@ -2487,7 +3008,9 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         opacity: 1 !important;
         transform: translateY(0) !important;
         pointer-events: auto !important;
-        z-index: 9999 !important;              
+        z-index: 9999 !important;  
+        gap: 6px;
+        font-size: 12px;            
       }
 
       .chat-window.fullscreen .message-row:hover .message-actions,
@@ -2495,10 +3018,6 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         opacity: 1 !important;
         transform: translateY(0) !important;
         pointer-events: auto !important;
-      }
-      .chat-window.fullscreen .message-actions {
-        gap: 6px;
-        font-size: 12px;
       }
 
       .chat-window.fullscreen {
@@ -2552,41 +3071,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                 <button class="close-btn" title="Close">&times;</button>
               </div>
             </div>
-            
-            <div class="messages">
-              ${this.messages.map(m => {
-                if (m.sender === 'system') {
-                  return `
-                    <div class="message-row system">
-                      <div class="bubble system">
-                        <div class="system-icon">📢</div>
-                        <div class="message-text">${m.text}</div>
-                        <div class="timestamp">${this.formatTime(m.timestamp)}</div>
-                      </div>
-                    </div>
-                  `;
-                }
-                if (m.sender === 'bot') {
-                  return `
-                    <div class="message-row bot">
-                      <div class="bubble bot">
-                        <div class="message-text">${m.text}</div>
-                        <div class="timestamp">${this.formatTime(m.timestamp)}</div>
-                      </div>
-                    </div>
-                  `;
-                }
-                return `
-                  <div class="message-row user">
-                    <div class="bubble user">
-                      <div class="message-text">${m.text}</div>
-                      <div class="timestamp">${this.formatTime(m.timestamp)}</div>
-                    </div>
-                  </div>
-                `;
-              }).join('')}
-            </div>
-            
+             <div class="messages"></div>            
             <div class="input-area">
               <textarea class="chat-input" rows="1" placeholder="Type a message..." autofocus></textarea>
               <input class="file-input" type="file" accept="image/*,.md,.markdown" style="display:none">
@@ -2628,6 +3113,9 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         const chatInput = this.shadowRoot.querySelector('.chat-input');
         if (chatInput) {
           chatInput.addEventListener('keydown', this.handleKeyDown.bind(this));
+          chatInput.addEventListener('input', () => this._autoResizeChatInput());
+          // initial resize
+          setTimeout(() => this._autoResizeChatInput(), 0);
           if (this.isOpen) chatInput.focus();
         }
         
@@ -2671,10 +3159,10 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                   id: Date.now(),
                   text: `<img src="${base64}" alt="user upload" style="max-width:200px;max-height:200px;">`,
                   sender: 'user',
-                  timestamp: new Date()
+                  timestamp: new Date(),
+                  isHtml: true
                 });
-                this.renderMessages();
-                this.scrollToBottom();
+                this.renderMessages({ autoScroll: 'bottom' });
                 if (this.ws && this.connectionStatus === 'connected') {
                   this.ws.send(JSON.stringify({ type: 'image', data: base64, filename: file.name }));
                 } else if (this.useRest) {
@@ -2707,10 +3195,10 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                   id: Date.now(),
                   text: html,
                   sender: 'user',
-                  timestamp: new Date()
+                  timestamp: new Date(),
+                  isHtml: true
                 });
-                this.renderMessages();
-                this.scrollToBottom();
+                this.renderMessages({ autoScroll: 'bottom' });
                 if (this.ws && this.connectionStatus === 'connected') {
                   this.ws.send(JSON.stringify({ type: 'markdown', data: content, filename: file.name }));
                 } else if (this.useRest) {
