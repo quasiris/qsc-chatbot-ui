@@ -1414,6 +1414,9 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         this.restClientId = null;
         this.editingId = null;
         this._copyTimers = {}; 
+        this.tenant = null;
+        this.code = null;
+        this.sessionId = null;
          this._copySVG = `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1431,12 +1434,30 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
 
       async connectedCallback() {
         this.logoPath=this.getAttribute('logo-path');
-        this.headerTitle=this.getAttribute('header-title')||'AI Assistant';
-        this.assistantName=this.getAttribute('assistant-name')||'AI assistant';
+        this.headerTitle=this.getAttribute('header-title') || 'AI Assistant';
+        this.assistantName=this.getAttribute('assistant-name') || 'AI assistant';
         this.wsUrl=this.getAttribute('ws-url');
-        this.restUrl=this.getAttribute('rest-url');
+        this.connectedStatus=this.getAttribute('connected-status') === 'true';
         this.enableRestFallback=this.hasAttribute('enable-rest-fallback');
-        
+        try {
+          const params = new URLSearchParams(window.location.search);
+          const t = params.get('tenant');
+          const c = params.get('code');
+          if (t) this.tenant = t;
+          if (c) this.code = c;
+        } catch (e) {
+          // ignore if URLSearchParams not available
+        }
+        const baseRestUrl = this.getAttribute('rest-url')?.replace(/\/+$/, '') || '';
+        // Encode tenant and code
+        const tenantEnc = encodeURIComponent(this.tenant ?? '');
+        const codeEnc = encodeURIComponent(this.code ?? '');
+
+        // Build full URL with path params included
+        if(tenantEnc && codeEnc)
+          this.restUrl = `${baseRestUrl}/${tenantEnc}/${codeEnc}`;
+        else  
+          this.restUrl = baseRestUrl;
         const rawWelcome = `**Hello!** I'm your ${this.assistantName}. How can I help you today?`;
         let welcomeHtml = '';
         try {
@@ -1445,7 +1466,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             } catch {
               welcomeHtml = `<pre class="markdown">${rawWelcome}</pre>`;
             }
-
+        
         this.messages = [{
           id: 1,
           text: welcomeHtml,       
@@ -1458,31 +1479,40 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         else if (this.restUrl && this.enableRestFallback) {
           this.useRest=true;
           this.restClientId = `rest-${Date.now()}`; 
-          this.es = new EventSource(this.restUrl);
-          this.es.onopen = () => {
-            this.connectionStatus = 'connected';
-            this.render();
-          };
-          this.es.onerror = () => {
-            this.connectionStatus = 'error';
-            this.render();
-          };
-          this.es.onmessage = e => {
-            const raw = e.data.trim();
-            if (!raw.startsWith('{')) return;
-            let msg;
-            try {
-              msg = JSON.parse(raw);
-            } catch {
-              return;
-            }
-            if (msg.type === 'broadcast') {
-              this._pushSystem(msg.text);
-            }
-            else {
-              this._pushBot(msg);
-            }
-          };
+          const base = this.restUrl.replace(/\/+$/, '');
+          const tenantEnc = encodeURIComponent(this.tenant ?? '');
+          const codeEnc   = encodeURIComponent(this.code ?? '');
+          const url = new URL(`${base}/${tenantEnc}/${codeEnc}`);
+          if (this.sessionId) url.searchParams.set("session_id", this.sessionId);
+          if (this.connectedStatus){
+            this.es = new EventSource(url.toString());
+       
+            this.es.onopen = () => {
+              this.connectionStatus = 'connected';
+              this.render();
+            };
+            this.es.onerror = () => {
+              this.connectionStatus = 'error';
+              this.render();
+            };
+            this.es.onmessage = e => {
+              const raw = e.data.trim();
+              if (!raw.startsWith('{')) return;
+              let msg;
+              try {
+                msg = JSON.parse(raw);
+              } catch {
+                return;
+              }
+              if (msg.type === 'broadcast') {
+                let text= msg.text || msg.message || msg.data;
+                this._pushSystem(text);
+              }
+              else {
+                this._pushBot(msg);
+              }
+            };
+          }
         } else this.useRest=false;
       }
 
@@ -1491,12 +1521,14 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       initWebSocket() {
         this.ws=new WebSocket(this.wsUrl);
         this.ws.onopen=_=>{ this.connectionStatus='connected';
-          this.ws.send(JSON.stringify({type:'register',clientId:`web-${Date.now()}`})); this.render();
+         if(this.connectedStatus){this.ws.send(JSON.stringify({type:'register',clientId:`web-${Date.now()}`})); this.render();}
         };
-        this.ws.onerror=_=>{ this.connectionStatus='error'; this.render(); };
-        this.ws.onclose=_=>{ this.connectionStatus='error'; this.render(); };
+        this.ws.onerror=_=>{this.connectionStatus='error'; this.render(); };
+        this.ws.onclose=_=>{this.connectionStatus='error'; this.render(); };
         this.ws.onmessage=e=>{ let d; try { d=JSON.parse(e.data);}catch{return;}
-          if(d.type==='broadcast') this._pushSystem(d.text);
+          if(d.type==='broadcast') {
+            let msg= d.text || d.message || d.data;
+            this._pushSystem(msg);}
           else this._pushBot(d);
         };
       }
@@ -1514,14 +1546,27 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           html=`<img src="${d$1.data}" style="max-width:200px;max-height:200px;">`;
         }else if(d$1.type==='markdown') {
           try {
-              const raw = d.parse(d$1.data);
-              html = `<div class="markdown">${DOMPurify.sanitize(raw)}</div>`;
-            } catch {
-              html = `<pre class="markdown">${d$1.data}</pre>`;
+             const decoded = (new DOMParser())
+            .parseFromString(String(d$1.data || ''), 'text/html')
+            .documentElement.textContent || String(d$1.data || '');
+
+              // configure marked if desired
+              d.setOptions({ gfm: true, breaks: true });
+
+              // convert markdown to HTML and sanitize
+              const converted = d.parse(decoded);
+              const clean = DOMPurify.sanitize(converted);
+
+              html = `<div class="markdown">${clean}</div>`;
+
+            } catch (err) {
+              // fallback: preserve raw markdown in a pre block
+              html = `<pre class="markdown">${DOMPurify.sanitize(String(d$1.data || ''))}</pre>`;
             }
         } else {
           html = d$1.text || '';
         }
+        this.sessionId = d$1.session_id;
         this.messages.push({id:Date.now(),text:html,sender:'bot',timestamp:new Date()});
         this.renderMessages({ autoScroll: 'bottom' });
       }
@@ -1564,15 +1609,21 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                 const res = await fetch(this.restUrl, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ type: 'message', text: value, id: `rest-${Date.now()}`, editedFrom: originalEditId })
+                  body: JSON.stringify({ type: 'message', text: value, id: `rest-${Date.now()}`,tenant: this.tenant,code: this.code, sessionId: this.sessionId, editedFrom: originalEditId })
                 });
-                const data = await res.json();
-                this.handleRestBotResponse(data);
+                if (!this.es) {
+                  try {
+                    const data = await res.json();
+                    this.handleRestBotResponse(data);
+                  } catch (e) {
+                    console.warn('REST edit response parsing failed or deferred to SSE', e);
+                  }
+                }
               } catch (err) {
                 this._pushSystem("Sorry, can't reach server.");
               }
-            } else if (this.ws && this.connectionStatus === 'connected') {
-              this.ws.send(JSON.stringify({ type: 'message', text: value, editedFrom: originalEditId }));
+            } else if (this.ws) {
+              this.ws.send(JSON.stringify({ type: 'message', text: value,tenant: this.tenant,code: this.code, sessionId: this.sessionId, editedFrom: originalEditId }));
             } else {
               this._pushSystem("Connection error.");
             }
@@ -1600,10 +1651,11 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
 
         if (this.useRest) {
           try {
+            const sessionId = localStorage.getItem('qsc_session_id') || this.sessionId || this._getSessionId();
             const res = await fetch(this.restUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'message', text: value, id: `rest-${Date.now()}` })
+              body: JSON.stringify({ type: 'message', text: value,tenant: this.tenant,code: this.code, sessionId: sessionId, id: `rest-${Date.now()}` })
             });
             const data = await res.json();
             this.handleRestBotResponse(data);
@@ -1613,7 +1665,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           return;
         }
         if (this.ws && this.connectionStatus === 'connected') {
-          this.ws.send(JSON.stringify({ type: 'message', text: value }));
+          this.ws.send(JSON.stringify({ type: 'message', text: value,tenant: this.tenant,code: this.code, sessionId: this.sessionId }));
         } else this._pushSystem("Connection error.");
       }
 
@@ -1651,6 +1703,10 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
 
       handleRestBotResponse(data) {
         this.messages = this.messages.filter(m => !m.isLoading);
+        if (data.session_id && !this.sessionId) {
+          this.sessionId = data.session_id;
+          localStorage.setItem('qsc_session_id', this.sessionId);
+        }
         let html = '';
         if (data.type === 'image') {
           html = `<img src="${data.data}" alt="server image" style="max-width:200px;max-height:200px;">`;
@@ -1662,7 +1718,12 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
               // fallback for unexpected parse errors
               html = `<pre class="markdown">${data.data}</pre>`;
             }
-        } else {
+        } else if(data.type==='broadcast') {
+            let msg= data.text || data.message || data.data;
+            this._pushSystem(msg);
+            return;
+          }
+             else {
           html = data.text || data.message || data.data;
         }
         this.messages.push({ id: Date.now(), text: html, sender: 'bot', timestamp: new Date() });
@@ -1701,6 +1762,23 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         tmp.innerHTML = html;
         return tmp.textContent || tmp.innerText || '';
       }
+        // get or create persistent session id stored in localStorage
+      _getSessionId() {
+        try {
+          const key = 'qsc_session_id';
+          let id = localStorage.getItem(key);
+          if (!id) {
+            // simple random id; you can replace with UUID lib if desired
+            id = 'sess-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,10);
+            localStorage.setItem(key, id);
+          }
+          return id;
+        } catch (e) {
+          // localStorage may be unavailable; fallback to ephemeral id
+          return 'sess-ephemeral-' + Date.now().toString(36);
+        }
+      }
+
       _splitIntoJsonAndTextSegments(raw) {
         const n = raw.length;
         let i = 0;
@@ -3059,11 +3137,13 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
               <div class="header-title">${this.headerTitle}</div>
               
               <div class="header-controls">
+              ${this.connectedStatus ? `
                 <div class="connection-status">
                   <div class="status-dot ${this.connectionStatus === 'connected' ? 'status-connected' : 
                     this.connectionStatus === 'connecting' ? 'status-connecting' : 'status-error'}"></div>
                   <span>${this.connectionStatus}</span>
                 </div>
+                ` : ``}
                 ${this.isFullscreen
                   ? `<button class="minimize-btn" title="Minimize">&#8211;</button>`
                   : `<button class="fullscreen-btn" title="Fullscreen">&#x26F6;</button>`
@@ -3163,6 +3243,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                   isHtml: true
                 });
                 this.renderMessages({ autoScroll: 'bottom' });
+                const sessionId = localStorage.getItem('qsc_session_id') || this.sessionId || this._getSessionId();
                 if (this.ws && this.connectionStatus === 'connected') {
                   this.ws.send(JSON.stringify({ type: 'image', data: base64, filename: file.name }));
                 } else if (this.useRest) {
@@ -3170,7 +3251,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                    const response = await fetch(this.restUrl, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ id: this.restClientId, type: 'image', data: base64, filename: file.name })
+                      body: JSON.stringify({ id: this.restClientId, type: 'image', data: base64, filename: file.name,session_id: sessionId })
                     });
                     const data = await response.json();  
                     this.handleRestBotResponse(data);
@@ -3199,6 +3280,8 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                   isHtml: true
                 });
                 this.renderMessages({ autoScroll: 'bottom' });
+                const sessionId = localStorage.getItem('qsc_session_id') || this.sessionId || this._getSessionId();
+
                 if (this.ws && this.connectionStatus === 'connected') {
                   this.ws.send(JSON.stringify({ type: 'markdown', data: content, filename: file.name }));
                 } else if (this.useRest) {
@@ -3206,7 +3289,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                     const response = await fetch(this.restUrl, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ id: Date.now(), type: 'markdown', data: content, filename: file.name })
+                      body: JSON.stringify({ id: Date.now(), type: 'markdown', data: content, filename: file.name, session_id: sessionId })
                     });
                     const data = await response.json();
                     this.handleRestBotResponse(data);

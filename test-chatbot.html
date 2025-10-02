@@ -366,10 +366,12 @@
         <div class="demo-box">
           <img src="./assets/QscChatbot.png" alt="QscChatbot" />
           <qsc-chatbot
-            ws-url="http://127.0.0.1:8080/chat/ws",
+            rest-url="http://127.0.0.1:3000/chat",
+            enable-rest-fallback="true",       
             header-title="QSC Chatbot"
             assistant-name="QSC Assistant"
             logo-path="./assets/bot.png"
+            connected-status="false"
           ></qsc-chatbot>
         </div>
         <div class="demo-box">
@@ -395,6 +397,7 @@
   ws-url="ws://your-websocket-server"
   header-title="QSC Chatbot"
   assistant-name="Qsc Assistant"
+  connected-status="true"
   logo-path="./path/to/logo.png"&gt;
 &lt;/qsc-chatbot&gt;</code></pre>
     </div> 
@@ -407,6 +410,7 @@
   enable-rest-fallback="true",       
   header-title="QSC Chatbot"
   assistant-name="QSC Assistant"
+  connected-status="true"
   logo-path="./path/to/logo.png"&gt;
 &lt;/qsc-chatbot&gt;</code></pre>
     </div>
