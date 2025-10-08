@@ -1417,6 +1417,9 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         this.tenant = null;
         this.code = null;
         this.sessionId = null;
+        this.receivedModels = [];      
+        this.selectedModel = null;
+        this.showModelMenu = false;
          this._copySVG = `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1431,7 +1434,48 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       </svg>
     `;
       }
+      _startNewChat() {
+        this.sessionId = null;
+        try {
+          localStorage.removeItem('qsc_session_id');
+        } catch (e) {
+        }
 
+        // Reset to welcome message
+        const rawWelcome = `**Hello!** I'm your ${this.assistantName}. How can I help you today?`;
+        let welcomeHtml = '';
+        try {
+          const raw = d.parse(rawWelcome);
+          welcomeHtml = `<div class="markdown">${DOMPurify.sanitize(raw)}</div>`;
+        } catch {
+          welcomeHtml = `<pre class="markdown">${rawWelcome}</pre>`;
+        }
+        
+        this.messages = [{
+          id: 1,
+          text: welcomeHtml,       
+          sender: 'bot',
+          timestamp: new Date(),
+        }];
+
+        // Reset selected model 
+        this.selectedModel = null; 
+        this.receivedModels = []; 
+
+        // Close any open dropdowns
+        this.showModelMenu = false;
+
+        this.renderMessages({ autoScroll: 'bottom' });
+        this.render();
+
+        if (this.ws) {
+          this.ws.send(JSON.stringify({ 
+            type: 'new_session', 
+            tenant: this.tenant, 
+            code: this.code 
+          }));
+        }
+      }
       async connectedCallback() {
         this.logoPath=this.getAttribute('logo-path');
         this.headerTitle=this.getAttribute('header-title') || 'AI Assistant';
@@ -1532,7 +1576,45 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           else this._pushBot(d);
         };
       }
+      _setModels(modelsFromServer) {
+        if (!modelsFromServer || !Array.isArray(modelsFromServer) || modelsFromServer.length === 0) {
+          this.receivedModels = [];
+          this.selectedModel = null;
+          this.showModelMenu = false;
+          return;
+        }
 
+        this.receivedModels = modelsFromServer.map((m, i) => {
+          if (typeof m === 'string') {
+            return { model: m, label: String(m) };
+          } else if (m && typeof m === 'object') {
+            return { model: m.model, label: String(m.label) || String(m)};
+          } else {
+            return { model: m, label: String(m) };
+          }
+        });
+
+        if (this.selectedModel) {
+          const keep = this.receivedModels.find(x => String(x.model) === String(this.selectedModel.model)
+                                                  || String(x.label) === String(this.selectedModel.label));
+          if (keep) {
+            this.selectedModel = keep;
+            return;
+          }
+        }
+        this.selectedModel =  this.receivedModels.find(x => String(x.label).toLowerCase() === 'default') || null;
+        this.render();
+      }
+
+      _selectModel(model) {
+        this.selectedModel = model;
+        this.showModelMenu = false;
+        this.render();
+      }
+      _removeSelectedModel() {
+        this.selectedModel = null;
+        this.render();
+      }
       _pushSystem(txt) {
         this.messages.push({id:Date.now(),text:txt,sender:'system',timestamp:new Date()});
         if(!this.isOpen){ this.showBroadcastPopup(txt); this.unreadCount++; }
@@ -1567,6 +1649,9 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           html = d$1.text || '';
         }
         this.sessionId = d$1.session_id;
+        if (Array.isArray(d$1.models) && d$1.models.length > 0) {
+          this._setModels(d$1.models);
+        }
         this.messages.push({id:Date.now(),text:html,sender:'bot',timestamp:new Date()});
         this.renderMessages({ autoScroll: 'bottom' });
       }
@@ -1603,13 +1688,13 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             input.value = '';
             input.style.height = '1px';
             input.placeholder = 'Type a message...';
-
+            const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
             if (this.useRest) {
               try {
                 const res = await fetch(this.restUrl, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ type: 'message', text: value, id: `rest-${Date.now()}`,tenant: this.tenant,code: this.code, sessionId: this.sessionId, editedFrom: originalEditId })
+                  body: JSON.stringify({ type: 'message', text: value, id: `rest-${Date.now()}`,tenant: this.tenant,code: this.code, sessionId: this.sessionId, editedFrom: originalEditId, model: modelToSend  })
                 });
                 if (!this.es) {
                   try {
@@ -1623,7 +1708,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                 this._pushSystem("Sorry, can't reach server.");
               }
             } else if (this.ws) {
-              this.ws.send(JSON.stringify({ type: 'message', text: value,tenant: this.tenant,code: this.code, sessionId: this.sessionId, editedFrom: originalEditId }));
+              this.ws.send(JSON.stringify({ type: 'message', text: value,tenant: this.tenant,code: this.code, sessionId: this.sessionId, editedFrom: originalEditId, model: modelToSend  }));
             } else {
               this._pushSystem("Connection error.");
             }
@@ -1649,13 +1734,15 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
          input.value = '';
         input.style.height = 'auto';
 
+        const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
+
         if (this.useRest) {
           try {
             const sessionId = localStorage.getItem('qsc_session_id') || this.sessionId || this._getSessionId();
             const res = await fetch(this.restUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'message', text: value,tenant: this.tenant,code: this.code, sessionId: sessionId, id: `rest-${Date.now()}` })
+              body: JSON.stringify({ type: 'message', text: value,tenant: this.tenant,code: this.code, sessionId: sessionId, id: `rest-${Date.now()}`, model: modelToSend  })
             });
             const data = await res.json();
             this.handleRestBotResponse(data);
@@ -1665,7 +1752,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           return;
         }
         if (this.ws && this.connectionStatus === 'connected') {
-          this.ws.send(JSON.stringify({ type: 'message', text: value,tenant: this.tenant,code: this.code, sessionId: this.sessionId }));
+          this.ws.send(JSON.stringify({ type: 'message', text: value,tenant: this.tenant,code: this.code, sessionId: this.sessionId, model: modelToSend }));
         } else this._pushSystem("Connection error.");
       }
 
@@ -1706,6 +1793,9 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         if (data.session_id && !this.sessionId) {
           this.sessionId = data.session_id;
           localStorage.setItem('qsc_session_id', this.sessionId);
+        }
+        if (Array.isArray(data.models) && data.models.length > 0) {
+          this._setModels(data.models);
         }
         let html = '';
         if (data.type === 'image') {
@@ -1774,7 +1864,6 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           }
           return id;
         } catch (e) {
-          // localStorage may be unavailable; fallback to ephemeral id
           return 'sess-ephemeral-' + Date.now().toString(36);
         }
       }
@@ -2119,13 +2208,14 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         const originalEditId = id;
         this.editingId = null;
         this.renderMessages({ autoScroll: 'bottom' });
+        const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
 
         if (this.useRest) {
           try {
             const res = await fetch(this.restUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId })
+              body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId, model: modelToSend })
             });
             const data = await res.json();
             this.handleRestBotResponse(data);
@@ -2133,7 +2223,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             this._pushSystem("Sorry, can't reach server.");
           }
         } else if (this.ws && this.connectionStatus === 'connected') {
-          this.ws.send(JSON.stringify({ type: 'message', text: newVal, editedFrom: originalEditId }));
+          this.ws.send(JSON.stringify({ type: 'message', text: newVal, editedFrom: originalEditId, model: modelToSend }));
         } else {
           this._pushSystem("Connection error.");
         }
@@ -2253,13 +2343,14 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
 
           const originalEditId = id;
           this.editingId = null;
+              const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
 
           if (this.useRest) {
             try {
               const res = await fetch(this.restUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId })
+                body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId,model:modelToSend })
               });
               const data = await res.json();
               this.handleRestBotResponse(data);
@@ -2267,7 +2358,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
               this._pushSystem("Sorry, can't reach server.");
             }
           } else if (this.ws && this.connectionStatus === 'connected') {
-            this.ws.send(JSON.stringify({ type: 'message', text: newVal, editedFrom: originalEditId }));
+            this.ws.send(JSON.stringify({ type: 'message', text: newVal, editedFrom: originalEditId, model :modelToSend  }));
           } else {
             this._pushSystem("Connection error.");
           }
@@ -2523,7 +2614,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         z-index: 9999;
         transition: transform 0.3s ease;
       }
-     .typing-indicator {
+      .typing-indicator {
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -2531,7 +2622,169 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         padding: 0 10px;
         background: #f1f1f1;
         border-radius: 20px;
+        }
+     
+      .model-selection-container {
+        display: flex;
+        align-items: center;
       }
+      .new-chat-btn {
+        background: transparent;
+        border: 1.5px solid rgba(255,255,255,0.3);
+        color: white;
+        padding: 8px 16px;
+        border-radius: 20px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        transition: all 0.3s ease;
+        margin-right: 8px;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }
+
+      .new-chat-btn:hover {
+        background: rgba(255,255,255,0.15);
+        border-color: rgba(255,255,255,0.5);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      }
+
+      .new-chat-btn:active {
+        transform: translateY(0);
+      }
+
+      .new-chat-icon {
+        width: 16px;
+        height: 16px;
+        position: relative;
+      }
+
+      .new-chat-icon::before,
+      .new-chat-icon::after {
+        content: '';
+        position: absolute;
+        background: currentColor;
+        border-radius: 1px;
+      }
+
+      .new-chat-icon::before {
+        width: 10px;
+        height: 2px;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+      }
+
+      .new-chat-icon::after {
+        width: 2px;
+        height: 10px;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+      }
+
+      .btn-disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        pointer-events: none;
+      }
+
+      .model-toggle-btn.model-selected {
+        background-color: rgb(0, 120, 212) !important;
+      }
+      .floating-new-chat {
+        position: absolute;
+        top: 12px;
+        right: 80px;
+        z-index: 100;
+      }
+
+      .floating-new-chat .new-chat-btn {
+        background: rgba(255,255,255,0.95);
+        color: var(--primary);
+        border: 1.5px solid var(--primary);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        margin-right: 0;
+      }
+
+      .floating-new-chat .new-chat-btn:hover {
+        background: var(--primary);
+        color: white;
+        box-shadow: 0 4px 12px rgba(0,120,212,0.3);
+      }
+      .model-toggle-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        border: 1px solid rgba(0,0,0,0.1);
+        background: var(--background);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        transition: var(--transition);
+        flex-shrink: 0;
+      }
+
+      .model-toggle-btn:hover {
+        background: var(--background-alt);
+        border-color: var(--primary);
+        color: var(--primary);
+      }
+
+      .model-dropdown {
+        position: absolute;
+        bottom: 12%;
+        left: 0;
+        background: var(--background);
+        border: 1px solid rgba(0,0,0,0.1);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        padding: 6px;
+        z-index: 1000;
+        min-width: 180px;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      .model-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        border: none;
+        background: transparent;
+        width: 100%;
+        text-align: left;
+        cursor: pointer;
+        border-radius: 6px;
+        font-size: 13px;
+        color: var(--text-primary);
+        transition: background 0.2s;
+      }
+
+      .model-item:hover {
+        background: rgba(0,0,0,0.04);
+      }
+
+      .model-item.selected {
+        background: var(--primary-light);
+        color: var(--primary);
+        font-weight: 600;
+      }
+
+      .model-chip-container {
+        position: relative;
+        flex: 1;
+      }
+
       .json-key { color: #a71d5d; }       
       .json-string { color: #183691; }    
       .json-number { color: #0086b3; }    
@@ -2903,7 +3156,6 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       .system .timestamp {
         text-align: right;
       }
-
       .input-area {
         display: flex;
         border-top: 1px solid rgba(0,0,0,0.08);
@@ -2916,8 +3168,8 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         flex: 1;
         border: 1px solid rgba(0,0,0,0.1);
         border-radius: 24px;
-        padding: 12px 16px;
-        line-height: 20px;   
+        padding: 12px 16px 12px 16px;
+        line-height: 20px;
         font-size: 13px;
         box-sizing: border-box;
         background: var(--background-alt);
@@ -3144,6 +3396,10 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                   <span>${this.connectionStatus}</span>
                 </div>
                 ` : ``}
+                <button class="new-chat-btn" title="Start new chat">
+                  <span class="new-chat-icon"></span>
+                  <span>New</span>
+                </button>
                 ${this.isFullscreen
                   ? `<button class="minimize-btn" title="Minimize">&#8211;</button>`
                   : `<button class="fullscreen-btn" title="Fullscreen">&#x26F6;</button>`
@@ -3151,8 +3407,25 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                 <button class="close-btn" title="Close">&times;</button>
               </div>
             </div>
-             <div class="messages"></div>            
-            <div class="input-area">
+            <div class="messages"></div>            
+            <div class="input-area" role="region" aria-label="Chat input area">
+              <div class="model-selection-container">
+                <button class="model-toggle-btn  ${this.selectedModel ? 'model-selected' : ''} ${!this.receivedModels || this.receivedModels.length === 0 ? 'btn-disabled' : ''}" title="Select model">
+                  &#128161;
+                </button>
+                ${this.receivedModels && this.receivedModels.length > 0 && this.showModelMenu ? `
+                  <div class="model-dropdown">
+                      ${this.receivedModels.map(model => `
+                        <button class="model-item ${this.selectedModel && this.selectedModel.model === model.model ? 'selected' : ''}" 
+                                data-model="${model.model}">
+                          <span>${model.label}</span>
+                          ${this.selectedModel && this.selectedModel.model === model.model ? '✓' : ''}
+                        </button>
+                      `).join('')}
+                    </div>
+                  ` : ''}
+              </div>
+              
               <textarea class="chat-input" rows="1" placeholder="Type a message..." autofocus></textarea>
               <input class="file-input" type="file" accept="image/*,.md,.markdown" style="display:none">
               <button class="attach-btn" title="Attach file">
@@ -3180,6 +3453,43 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       </div>
     `;
         this.renderMessages();
+        
+        // Add event listeners for new chat buttons
+        const newChatButtons = this.shadowRoot.querySelectorAll('.new-chat-btn');
+        newChatButtons.forEach(button => {
+          button.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._startNewChat();
+          });
+        });
+        
+
+        // Model dropdown selection
+        const modelItems = this.shadowRoot.querySelectorAll('.model-item');
+        modelItems.forEach(item => {
+          item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const modelId = item.dataset.model;
+            const selected = this.receivedModels.find(m => m.model === modelId);
+            if (selected) {
+              this._selectModel(selected);
+            }
+          });
+        });
+
+        // Close dropdown when clicking outside
+        if (this.showModelMenu) {
+          setTimeout(() => {
+            const closeDropdown = (e) => {
+              if (!this.shadowRoot.contains(e.target)) {
+                this.showModelMenu = false;
+                this.render();
+                document.removeEventListener('click', closeDropdown);
+              }
+            };
+            document.addEventListener('click', closeDropdown);
+          }, 0);
+        }
         const toggleBtn = this.shadowRoot.querySelector('.toggle-btn');
         if (toggleBtn) {
           toggleBtn.addEventListener('click', this.handleClick.bind(this));
@@ -3244,14 +3554,16 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                 });
                 this.renderMessages({ autoScroll: 'bottom' });
                 const sessionId = localStorage.getItem('qsc_session_id') || this.sessionId || this._getSessionId();
+                const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
+
                 if (this.ws && this.connectionStatus === 'connected') {
-                  this.ws.send(JSON.stringify({ type: 'image', data: base64, filename: file.name }));
+                  this.ws.send(JSON.stringify({ type: 'image', data: base64, filename: file.name,model :modelToSend }));
                 } else if (this.useRest) {
                   try {
                    const response = await fetch(this.restUrl, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ id: this.restClientId, type: 'image', data: base64, filename: file.name,session_id: sessionId })
+                      body: JSON.stringify({ id: this.restClientId, type: 'image', data: base64, filename: file.name,session_id: sessionId,model :modelToSend })
                     });
                     const data = await response.json();  
                     this.handleRestBotResponse(data);
@@ -3281,15 +3593,16 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                 });
                 this.renderMessages({ autoScroll: 'bottom' });
                 const sessionId = localStorage.getItem('qsc_session_id') || this.sessionId || this._getSessionId();
+                const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
 
                 if (this.ws && this.connectionStatus === 'connected') {
-                  this.ws.send(JSON.stringify({ type: 'markdown', data: content, filename: file.name }));
+                  this.ws.send(JSON.stringify({ type: 'markdown', data: content, filename: file.name,model :modelToSend }));
                 } else if (this.useRest) {
                   try {
                     const response = await fetch(this.restUrl, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ id: Date.now(), type: 'markdown', data: content, filename: file.name, session_id: sessionId })
+                      body: JSON.stringify({ id: Date.now(), type: 'markdown', data: content, filename: file.name, session_id: sessionId , model:modelToSend})
                     });
                     const data = await response.json();
                     this.handleRestBotResponse(data);
@@ -3303,6 +3616,17 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             fileInput.value = '';
           });
         }
+        // Model dropdown toggle
+        const modelToggleBtn = this.shadowRoot.querySelector('.model-toggle-btn');
+        if (modelToggleBtn) {
+          modelToggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.showModelMenu = !this.showModelMenu;
+            this.render();
+          });
+        }
+
+
       }
     }
 
