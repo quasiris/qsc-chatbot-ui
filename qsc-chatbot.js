@@ -216,7 +216,37 @@ class QscChatbot extends HTMLElement {
     if(!this.isOpen){ this.showBroadcastPopup(txt); this.unreadCount++; }
     this.renderMessages({ autoScroll: 'bottom' });
   }
+ _renderModelDropdown() {
+  const dropdownContainer = this.shadowRoot.querySelector('.model-dropdown-container');
+  if (!dropdownContainer) return;
 
+  if (this.receivedModels && this.receivedModels.length > 0 && this.showModelMenu) {
+    dropdownContainer.innerHTML = `
+      <div class="model-dropdown">
+          ${this.receivedModels.map(model => `
+                        <button class="model-item ${this.selectedModel && this.selectedModel.model === model.model ? 'selected' : ''}" 
+                                data-model="${model.model}">
+                          <span>${model.label}</span>
+                          ${this.selectedModel && this.selectedModel.model === model.model ? '✓' : ''}
+                        </button>
+                      `).join('')}
+      </div>
+    `;
+
+    dropdownContainer.querySelectorAll('.model-item').forEach(option => {
+      option.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const modelValue = option.getAttribute('data-model');
+        const selected = this.receivedModels.find(m => m.model === modelValue);
+        if (selected) 
+          this._selectModel(selected);
+      });
+    });
+  } else {
+    dropdownContainer.innerHTML = '';
+  }
+}
+  
   _pushBot(d) {
     this.messages = this.messages.filter(m => !m.isLoading); 
     let html = '';
@@ -2009,18 +2039,9 @@ class QscChatbot extends HTMLElement {
                 <button class="model-toggle-btn  ${this.selectedModel ? 'model-selected' : ''} ${!this.receivedModels || this.receivedModels.length === 0 ? 'btn-disabled' : ''}" title="Select model">
                   &#128161;
                 </button>
-                ${this.receivedModels && this.receivedModels.length > 0 && this.showModelMenu ? `
-                  <div class="model-dropdown">
-                      ${this.receivedModels.map(model => `
-                        <button class="model-item ${this.selectedModel && this.selectedModel.model === model.model ? 'selected' : ''}" 
-                                data-model="${model.model}">
-                          <span>${model.label}</span>
-                          ${this.selectedModel && this.selectedModel.model === model.model ? '✓' : ''}
-                        </button>
-                      `).join('')}
-                    </div>
-                  ` : ''}
-              </div>
+                <div class="model-dropdown-container">
+                </div>
+                </div>
               
               <textarea class="chat-input" rows="1" placeholder="Type a message..." autofocus></textarea>
               <input class="file-input" type="file" accept="image/*,.md,.markdown" style="display:none">
@@ -2056,20 +2077,6 @@ class QscChatbot extends HTMLElement {
       button.addEventListener('click', (e) => {
         e.stopPropagation();
         this._startNewChat();
-      });
-    });
-    
-
-    // Model dropdown selection
-    const modelItems = this.shadowRoot.querySelectorAll('.model-item');
-    modelItems.forEach(item => {
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const modelId = item.dataset.model;
-        const selected = this.receivedModels.find(m => m.model === modelId);
-        if (selected) {
-          this._selectModel(selected);
-        }
       });
     });
 
@@ -2218,10 +2225,15 @@ class QscChatbot extends HTMLElement {
       modelToggleBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.showModelMenu = !this.showModelMenu;
-        this.render();
+         this._renderModelDropdown(); 
       });
     }
-
+    document.addEventListener('click', () => {
+    if (this.showModelMenu) {
+      this.showModelMenu = false;
+      this._renderModelDropdown(); // Only render the dropdown part
+    }
+  });
 
   }
 }
