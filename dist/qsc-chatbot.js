@@ -1620,6 +1620,48 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         if(!this.isOpen){ this.showBroadcastPopup(txt); this.unreadCount++; }
         this.renderMessages({ autoScroll: 'bottom' });
       }
+      async _sendActionPrompt(promptText) {
+        if (!promptText) throw new Error('Empty prompt');
+
+        this.messages.push({ id: `action-${Date.now()}`, text: promptText, sender: 'user', timestamp: new Date() });
+
+        const loadingId = Date.now() + '-loading';
+        this.messages.push({
+          id: loadingId,
+          text: `
+        <div class="typing-indicator">
+          <span></span><span></span><span></span>
+        </div>
+      `,
+          sender: 'bot',
+          timestamp: new Date(),
+          isLoading: true
+        });
+
+        this.renderMessages({ autoScroll: 'bottom' });
+
+        if (this.useRest) {
+          try {
+            const res = await fetch(this.restUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'message', text: promptText, id: `rest-${Date.now()}` })
+            });
+            const data = await res.json();
+            this.handleRestBotResponse(data);
+          } catch (err) {
+            this._pushSystem("Sorry, can't reach server.");
+          }
+          return;
+        }
+
+        if (this.ws && this.connectionStatus === 'connected') {
+          this.ws.send(JSON.stringify({ type: 'message', text: promptText }));
+        } else {
+          this._pushSystem("Connection error.");
+        }
+      }
+
      _renderModelDropdown() {
       const dropdownContainer = this.shadowRoot.querySelector('.model-dropdown-container');
       if (!dropdownContainer) return;
@@ -1662,7 +1704,6 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             .parseFromString(String(d$1.data || ''), 'text/html')
             .documentElement.textContent || String(d$1.data || '');
 
-              // configure marked if desired
               d.setOptions({ gfm: true, breaks: true });
 
               // convert markdown to HTML and sanitize
@@ -1832,8 +1873,38 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           html = `<img src="${data.data}" alt="server image" style="max-width:200px;max-height:200px;">`;
         } else if (data.type === 'markdown') {
           try {
-              const raw = d.parse(data.data);
-              html = `<div class="markdown">${DOMPurify.sanitize(raw)}</div>`;
+              // Utility: escape HTML attributes safely
+              function escapeAttr(s) {
+                if (s == null) return "";
+                return String(s)
+                  .replace(/&/g, "&amp;")
+                  .replace(/"/g, "&quot;")
+                  .replace(/'/g, "&#39;")
+                  .replace(/</g, "&lt;")
+                  .replace(/>/g, "&gt;");
+              }
+
+              let raw = d.parse(data.data);
+
+            
+
+              raw = raw.replace(
+                /\[\[QSCACTION:([^:]+):([^:]+):([\s\S]*?)\]\]/g,
+                function (_, type, label, actionText) {
+                  const t = escapeAttr(type.trim());
+                  const l = escapeAttr(label.trim());
+                  const a = escapeAttr(actionText.trim());
+                  return `<button class="action-button" data-action-type="${t}" data-action="${a}">${l}</button>`;
+                }
+              );
+              raw = raw.replace(/((?:<button[^>]*>.*?<\/button>(?:\s*(?:<br\s*\/?>|\s)*)?)+)/gs, match => {
+                const btns = Array.from(match.matchAll(/<button[^>]*>.*?<\/button>/gs), m => m[0]);
+                if (!btns.length) return match;
+                return `<div class="qsc-actions">${btns.join('')}</div>`;
+              });
+              const safeHtml = DOMPurify.sanitize(raw);
+              html = `<div class="markdown">${safeHtml}</div>`;
+
             } catch {
               // fallback for unexpected parse errors
               html = `<pre class="markdown">${data.data}</pre>`;
@@ -1882,13 +1953,11 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         tmp.innerHTML = html;
         return tmp.textContent || tmp.innerText || '';
       }
-        // get or create persistent session id stored in localStorage
       _getSessionId() {
         try {
           const key = 'qsc_session_id';
           let id = localStorage.getItem(key);
           if (!id) {
-            // simple random id; you can replace with UUID lib if desired
             id = 'sess-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,10);
             localStorage.setItem(key, id);
           }
@@ -1983,7 +2052,6 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         const container = this.shadowRoot.querySelector('.messages');
         if (!container) return;
 
-        // find all pre > code nodes that look like JSON or start with { or [
         const codeNodes = Array.from(container.querySelectorAll('pre code'))
           .filter(code => {
             const cls = String(code.className || '').toLowerCase();
@@ -2563,6 +2631,13 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
 
             const copyBtn = e.target.closest('.copy-btn');
             if (copyBtn) { this._handleCopy(copyBtn.dataset.msgId); return; }
+            
+            const actionBtn = e.target.closest('.action-button');
+            if (actionBtn) {
+              const action = e.target.getAttribute('data-action');
+              if (action) {
+                this._sendActionPrompt(action);
+              } return; }
 
             const editBtn = e.target.closest('.edit-btn');
             if (editBtn) { this._handleEdit(editBtn.dataset.msgId); return; }
@@ -2652,8 +2727,45 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         padding: 0 10px;
         background: #f1f1f1;
         border-radius: 20px;
-        }
-     
+      }
+      .qsc-actions {
+        display: inline-flex;      
+        gap: 8px;
+        justify-content: center;
+        align-items: center;
+        width: 100%;               
+        margin-bottom: 6px;
+      }
+     .action-button {
+        padding: 8px 16px;
+        margin: 4px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        background: linear-gradient(90deg,#0072ff,#7dd3fc);
+        color: #012;
+        transition: background 0.2s ease;
+        margin: 0; 
+      }
+      .markdown table td img {
+        width: 180px;
+        height: auto;
+        object-fit: cover;
+        border: 1px solid #e6eef9;
+        border-radius: 8px;
+        padding: 4px;
+        display: block;
+        margin: 0 auto 8px auto;
+      }
+      .markdown table td{
+        border-radius: 14px;
+        padding: 12px;
+        border: none;
+      }
+      .markdown table td:has(strong) {
+        border: 1px solid rgba(0, 0, 0, 0.04);
+      }
       .model-selection-container {
         display: flex;
         align-items: center;
@@ -3197,7 +3309,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       .chat-input {
         flex: 1;
         border: 1px solid rgba(0,0,0,0.1);
-        border-radius: 24px;
+        border-radius: 9px;
         padding: 12px 16px 12px 16px;
         line-height: 20px;
         font-size: 13px;
@@ -3633,12 +3745,11 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           });
         }
         document.addEventListener('click', () => {
-        if (this.showModelMenu) {
-          this.showModelMenu = false;
-          this._renderModelDropdown(); // Only render the dropdown part
-        }
-      });
-
+          if (this.showModelMenu) {
+            this.showModelMenu = false;
+            this._renderModelDropdown(); // Only render the dropdown part
+          }
+        });
       }
     }
 
