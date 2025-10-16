@@ -13,6 +13,7 @@ class QscChatbot extends HTMLElement {
     this.tenant = null;
     this.code = null;
     this.sessionId = null;
+    this.inputValue = "";
     this.receivedModels = [];      
     this.selectedModel = null;
     this.showModelMenu = false;
@@ -77,6 +78,7 @@ class QscChatbot extends HTMLElement {
     this.headerTitle=this.getAttribute('header-title') || 'AI Assistant';
     this.assistantName=this.getAttribute('assistant-name') || 'AI assistant';
     this.wsUrl=this.getAttribute('ws-url');
+    this.attachBtn=this.getAttribute('attach-btn') === 'true';
     this.connectedStatus=this.getAttribute('connected-status') === 'true';
     this.enableRestFallback=this.hasAttribute('enable-rest-fallback');
     try {
@@ -327,7 +329,6 @@ class QscChatbot extends HTMLElement {
     const input = this.shadowRoot.querySelector('.chat-input');
     const value = input.value.trim();
     if (!value) return;
-
     if (this.editingId) {
       const idx = this._findIndexById(this.editingId);
       if (idx === -1) {
@@ -398,7 +399,8 @@ class QscChatbot extends HTMLElement {
     });
 
     this.renderMessages({ autoScroll: 'bottom' });
-     input.value = '';
+    input.value = '';
+    this.inputValue = '';
     input.style.height = 'auto';
 
     const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
@@ -440,9 +442,23 @@ class QscChatbot extends HTMLElement {
   _autoResizeChatInput() {
     const input = this.shadowRoot && this.shadowRoot.querySelector('.chat-input');
     if (!input) return;
-    input.style.height = '1px';
-    input.style.height = (input.scrollHeight) + 'px';
+
+    let computed = window.getComputedStyle(input);
+    let maxHeight = parseFloat(computed.maxHeight) || 150;
+
+    input.style.height = 'auto';
+    // measure needed height
+    const needed = input.scrollHeight;
+
+    if (needed <= maxHeight) {
+      input.style.overflowY = 'hidden';
+      input.style.height = needed + 'px';
+    } else {
+      input.style.overflowY = 'auto';
+      input.style.height = maxHeight + 'px';
+    }
   }
+
   handleKeyDown(e) {
    if (!e.target.classList.contains('chat-input')) return;
     if (e.key === 'Enter') {
@@ -469,7 +485,7 @@ class QscChatbot extends HTMLElement {
       html = `<img src="${data.data}" alt="server image" style="max-width:200px;max-height:200px;">`;
     } else if (data.type === 'markdown') {
       try {
-          // Utility: escape HTML attributes safely
+          // escape HTML attributes safely
           function escapeAttr(s) {
             if (s == null) return "";
             return String(s)
@@ -1378,7 +1394,7 @@ class QscChatbot extends HTMLElement {
         display: flex;
         align-items: center;
         gap: 6px;
-        transition: all 0.3s ease;
+        transition: var(--transition);
         margin-right: 8px;
         backdrop-filter: blur(10px);
         -webkit-backdrop-filter: blur(10px);
@@ -1455,7 +1471,7 @@ class QscChatbot extends HTMLElement {
         box-shadow: 0 4px 12px rgba(0,120,212,0.3);
       }
       .model-toggle-btn {
-        width: 32px;
+        width: 30px;
         height: 32px;
         border-radius: 8px;
         border: 1px solid rgba(0,0,0,0.1);
@@ -1464,8 +1480,7 @@ class QscChatbot extends HTMLElement {
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 16px;
-        font-weight: 600;
+        font-size: 15px;
         color: var(--text-secondary);
         transition: var(--transition);
         flex-shrink: 0;
@@ -1880,6 +1895,7 @@ class QscChatbot extends HTMLElement {
         font-family: monospace;
       } 
       .message-text p {
+        white-space: pre-wrap;
         margin: 0 !important;
       }
       .timestamp {
@@ -1897,22 +1913,25 @@ class QscChatbot extends HTMLElement {
       .input-area {
         display: flex;
         border-top: 1px solid rgba(0,0,0,0.08);
-        padding: 16px;
+        padding: 11px;
         background: var(--background);
-        gap: 10px;
+        gap: 6px;
+        align-items: center;
       }
       
       .chat-input {
         flex: 1;
         border: 1px solid rgba(0,0,0,0.1);
         border-radius: 9px;
-        padding: 12px 16px 12px 16px;
-        line-height: 20px;
-        font-size: 13px;
+        padding: 8px;
+        line-height: 18px;
+        font-size: 12px;
         box-sizing: border-box;
         background: var(--background-alt);
         color: var(--text-primary);
         transition: border 0.2s;
+        resize: none;
+        max-height: 140px;
       }
       
       .chat-input:focus {
@@ -1926,8 +1945,8 @@ class QscChatbot extends HTMLElement {
         color: white;
         border: none;
         border-radius: 50%;
-        width: 44px;
-        height: 44px;
+        width: 30px;
+        height: 30px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1945,8 +1964,8 @@ class QscChatbot extends HTMLElement {
       }
       
       .send-btn svg {
-        width: 20px;
-        height: 20px;
+        width: 17px;
+        height: 17px;
       }
       
       .attach-btn {
@@ -2156,12 +2175,13 @@ class QscChatbot extends HTMLElement {
                 </div>
               
               <textarea class="chat-input" rows="1" placeholder="Type a message..." autofocus></textarea>
+                ${this.attachBtn ? `
               <input class="file-input" type="file" accept="image/*,.md,.markdown" style="display:none">
               <button class="attach-btn" title="Attach file">
                 <svg viewBox="0 0 24 24" fill="none" width="20" height="20" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21.44 11.05l-9.19 9.19a5 5 0 01-7.07-7.07l9.19-9.19a3 3 0 014.24 4.24l-9.19 9.19a1 1 0 01-1.41-1.41l9.19-9.19" />
                 </svg>
-              </button>
+              </button> ` : ``}
               <button class="send-btn">
                 <svg class="send-icon" viewBox="0 0 24 24" fill="white">
                   <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
@@ -2217,8 +2237,15 @@ class QscChatbot extends HTMLElement {
     
     const chatInput = this.shadowRoot.querySelector('.chat-input');
     if (chatInput) {
-      chatInput.addEventListener('keydown', this.handleKeyDown.bind(this));
-      chatInput.addEventListener('input', () => this._autoResizeChatInput());
+      chatInput.value = this.inputValue || '';
+      if (!chatInput._qsc_handlers_attached) {
+        chatInput.addEventListener('input', (e) => {
+          this.inputValue = e.target.value;
+          try { this._autoResizeChatInput(); } catch (err) {}
+        });
+        chatInput.addEventListener('keydown', this.handleKeyDown.bind(this));
+        chatInput._qsc_handlers_attached = true;
+      }
       // initial resize
       setTimeout(() => this._autoResizeChatInput(), 0);
       if (this.isOpen) chatInput.focus();
