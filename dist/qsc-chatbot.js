@@ -1888,8 +1888,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         if (data.type === 'image') {
           html = `<img src="${data.data}" alt="server image" style="max-width:200px;max-height:200px;">`;
         } else if (data.type === 'markdown') {
-          try {
-              // escape HTML attributes safely
+          try {// escape HTML attributes safely
               function escapeAttr(s) {
                 if (s == null) return "";
                 return String(s)
@@ -1905,19 +1904,35 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             
 
               raw = raw.replace(
-                /\[\[QSCACTION:([^:]+):([^:]+):([\s\S]*?)\]\]/g,
-                function (_, type, label, actionText) {
-                  const t = escapeAttr(type.trim());
-                  const l = escapeAttr(label.trim());
-                  const a = escapeAttr(actionText.trim());
-                  return `<button class="action-button" data-action-type="${t}" data-action="${a}">${l}</button>`;
+                /\[\[QSCACTION:([^\]]+)\]\]/g,
+                function (_, params) {
+                  // Parse key-value pairs (type=value,label=value,prompt=value)
+                  const paramMap = {};
+                  params.split(',').forEach(pair => {
+                    const [key, ...valueParts] = pair.split('=');
+                    if (key && valueParts.length) {
+                      paramMap[key.trim()] = valueParts.join('=').trim();
+                    }
+                  });
+                  
+                  const type = escapeAttr(paramMap.type || '');
+                  const label = escapeAttr(paramMap.label || '');
+                  const prompt = escapeAttr(paramMap.prompt || '');
+                  
+                  return `<button class="action-button" data-action-type="${type}" data-action="${prompt}">${label}</button>`;
                 }
               );
-              raw = raw.replace(/((?:<button[^>]*>.*?<\/button>(?:\s*(?:<br\s*\/?>|\s)*)?)+)/gs, match => {
-                const btns = Array.from(match.matchAll(/<button[^>]*>.*?<\/button>/gs), m => m[0]);
-                if (!btns.length) return match;
-                return `<div class="qsc-actions">${btns.join('')}</div>`;
-              });
+
+              // Group consecutive buttons into action containers
+              raw = raw.replace(
+                /((?:<button[^>]*>.*?<\/button>(?:\s*(?:<br\s*\/?>|\s)*)?)+)/gs, 
+                match => {
+                  const btns = Array.from(match.matchAll(/<button[^>]*>.*?<\/button>/gs), m => m[0]);
+                  if (!btns.length) return match;
+                  return `<div class="qsc-actions">${btns.join('')}</div>`;
+                }
+              );
+
               const safeHtml = DOMPurify.sanitize(raw);
               html = `<div class="markdown">${safeHtml}</div>`;
 
