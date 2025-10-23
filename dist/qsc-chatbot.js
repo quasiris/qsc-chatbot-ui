@@ -1409,13 +1409,12 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       constructor() {
         super(); this.attachShadow({mode:'open'});
         this.isOpen=false; this.isFullscreen=false; this.isMinimized=false;
-        this.messages=[]; this.ws=null; this.es=null;
-        this.connectionStatus='connecting'; this.unreadCount=0;
+        this.messages=[];
+        this.unreadCount=0;
         this.restClientId = null;
         this.editingId = null;
+        this._initialFetched = false;
         this._copyTimers = {}; 
-        this.tenant = null;
-        this.code = null;
         this.sessionId = null;
         this.inputValue = "";
         this.receivedModels = [];      
@@ -1441,143 +1440,63 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           localStorage.removeItem('qsc_session_id');
         } catch (e) {
         }
-
-        // Reset to welcome message
-        const rawWelcome = `**Hello!** I'm your ${this.assistantName}. How can I help you today?`;
-        let welcomeHtml = '';
-        try {
-          const raw = d.parse(rawWelcome);
-          welcomeHtml = `<div class="markdown">${DOMPurify.sanitize(raw)}</div>`;
-        } catch {
-          welcomeHtml = `<pre class="markdown">${rawWelcome}</pre>`;
-        }
-        
-        this.messages = [{
-          id: 1,
-          text: welcomeHtml,       
-          sender: 'bot',
-          timestamp: new Date(),
-        }];
-
-        // Reset selected model 
-        this.selectedModel = null; 
-        this.receivedModels = []; 
-
-        // Close any open dropdowns
-        this.showModelMenu = false;
+        this.messages = [];
+        this._initialFetched = false;
+        this._fetchInitialMessage().catch(err => console.error(err));
 
         this.renderMessages({ autoScroll: 'bottom' });
         this.render();
-
-        if (this.ws) {
-          this.ws.send(JSON.stringify({ 
-            type: 'new_session', 
-            tenant: this.tenant, 
-            code: this.code 
-          }));
-        }
       }
       async connectedCallback() {
         this.logoPath=this.getAttribute('logo-path');
-        this.headerTitle=this.getAttribute('header-title') || 'AI Assistant';
-        this.assistantName=this.getAttribute('assistant-name') || 'AI assistant';
-        this.wsUrl=this.getAttribute('ws-url');
+        this.headerTitle=this.getAttribute('header-title') || 'QSC Chatbot';
         this.attachBtn=this.getAttribute('attach-btn') === 'true';
-        this.connectedStatus=this.getAttribute('connected-status') === 'true';
-        this.enableRestFallback=this.hasAttribute('enable-rest-fallback');
-        try {
-          const params = new URLSearchParams(window.location.search);
-          const t = params.get('tenant');
-          const c = params.get('code');
-          if (t) this.tenant = t;
-          if (c) this.code = c;
-        } catch (e) {
-          // ignore if URLSearchParams not available
-        }
-        const baseRestUrl = this.getAttribute('rest-url')?.replace(/\/+$/, '') || '';
-        // Encode tenant and code
-        const tenantEnc = encodeURIComponent(this.tenant ?? '');
-        const codeEnc = encodeURIComponent(this.code ?? '');
-
-        // Build full URL with path params included
-        if(tenantEnc && codeEnc)
-          this.restUrl = `${baseRestUrl}/${tenantEnc}/${codeEnc}`;
-        else  
-          this.restUrl = baseRestUrl;
-        const rawWelcome = `**Hello!** I'm your ${this.assistantName}. How can I help you today?`;
-        let welcomeHtml = '';
-        try {
-              const raw = d.parse(rawWelcome);
-              welcomeHtml = `<div class="markdown">${DOMPurify.sanitize(raw)}</div>`;
-            } catch {
-              welcomeHtml = `<pre class="markdown">${rawWelcome}</pre>`;
-            }
+        this.restUrl = this.getAttribute('rest-url') || '';
         
-        this.messages = [{
-          id: 1,
-          text: welcomeHtml,       
+        this.render();
+      }
+      async _fetchInitialMessage() {
+        if (this._initialFetched) return;
+        this._initialFetched = true;
+
+        const loadingId = `initial-loading-${Date.now()}`;
+        this.messages.push({
+          id: loadingId,
+          text: `
+        <div class="typing-indicator">
+          <span></span><span></span><span></span>
+        </div>
+      `,
           sender: 'bot',
           timestamp: new Date(),
-        }];
-        this.render();
+          isLoading: true
+        });
+        this.renderMessages({ autoScroll: 'bottom' });
 
-        if (this.wsUrl) this.initWebSocket();
-        else if (this.restUrl && this.enableRestFallback) {
-          this.useRest=true;
-          this.restClientId = `rest-${Date.now()}`; 
-          const base = this.restUrl.replace(/\/+$/, '');
-          const tenantEnc = encodeURIComponent(this.tenant ?? '');
-          const codeEnc   = encodeURIComponent(this.code ?? '');
-          const url = new URL(`${base}/${tenantEnc}/${codeEnc}`);
-          if (this.sessionId) url.searchParams.set("session_id", this.sessionId);
-          if (this.connectedStatus){
-            this.es = new EventSource(url.toString());
-       
-            this.es.onopen = () => {
-              this.connectionStatus = 'connected';
-              this.render();
-            };
-            this.es.onerror = () => {
-              this.connectionStatus = 'error';
-              this.render();
-            };
-            this.es.onmessage = e => {
-              const raw = e.data.trim();
-              if (!raw.startsWith('{')) return;
-              let msg;
-              try {
-                msg = JSON.parse(raw);
-              } catch {
-                return;
-              }
-              if (msg.type === 'broadcast') {
-                let text= msg.text || msg.message || msg.data;
-                this._pushSystem(text);
-              }
-              else {
-                this._pushBot(msg);
-              }
-            };
-          }
-        } else this.useRest=false;
+        const payload = {
+          type: 'init',                 
+          sessionId: null               
+        };
+
+        try {
+          const res = await fetch(this.restUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          const data = await res.json();
+          this.handleRestBotResponse(data);
+          
+        } catch (err) {
+          // remove loading indicator
+          this.messages = this.messages.filter(m => !m.isLoading);
+          // push readable error system message
+          this._pushSystem("Can't reach server for initial message.");
+          console.error('Initial fetch failed', err);
+        }
       }
 
-      disconnectedCallback() { if(this.ws) this.ws.close(); if(this.es) this.es.close(); }
-
-      initWebSocket() {
-        this.ws=new WebSocket(this.wsUrl);
-        this.ws.onopen=_=>{ this.connectionStatus='connected';
-         if(this.connectedStatus){this.ws.send(JSON.stringify({type:'register',clientId:`web-${Date.now()}`})); this.render();}
-        };
-        this.ws.onerror=_=>{this.connectionStatus='error'; this.render(); };
-        this.ws.onclose=_=>{this.connectionStatus='error'; this.render(); };
-        this.ws.onmessage=e=>{ let d; try { d=JSON.parse(e.data);}catch{return;}
-          if(d.type==='broadcast') {
-            let msg= d.text || d.message || d.data;
-            this._pushSystem(msg);}
-          else this._pushBot(d);
-        };
-      }
       _setModels(modelsFromServer) {
         if (!modelsFromServer || !Array.isArray(modelsFromServer) || modelsFromServer.length === 0) {
           this.receivedModels = [];
@@ -1588,11 +1507,11 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
 
         this.receivedModels = modelsFromServer.map((m, i) => {
           if (typeof m === 'string') {
-            return { model: m, label: String(m) };
+            return { model: m, label: String(m), selected: m.selected || false };
           } else if (m && typeof m === 'object') {
-            return { model: m.model, label: String(m.label) || String(m)};
+            return { model: m.model, label: String(m.label) || String(m), selected: m.selected || false};
           } else {
-            return { model: m, label: String(m) };
+            return { model: m, label: String(m),selected: m.selected || false };
           }
         });
 
@@ -1604,7 +1523,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             return;
           }
         }
-        this.selectedModel =  this.receivedModels.find(x => String(x.label).toLowerCase() === 'default') || null;
+        this.selectedModel =  this.receivedModels.find(x => x.selected === true) || null;
         this.render();
       }
 
@@ -1622,47 +1541,52 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         if(!this.isOpen){ this.showBroadcastPopup(txt); this.unreadCount++; }
         this.renderMessages({ autoScroll: 'bottom' });
       }
-      async _sendActionPrompt(promptText) {
+      async _sendActionPrompt(promptText, uiPrompt = null, isSilent = false) {
         if (!promptText) throw new Error('Empty prompt');
-
-        this.messages.push({ id: `action-${Date.now()}`, text: promptText, sender: 'user', timestamp: new Date() });
+        
+        if (!isSilent) {
+            const displayText = uiPrompt || promptText;
+            if (displayText) {
+                this.messages.push({ 
+                    id: `action-${Date.now()}`, 
+                    text: displayText, 
+                    sender: 'user', 
+                    timestamp: new Date() 
+                });
+            }
+        }
 
         const loadingId = Date.now() + '-loading';
         this.messages.push({
-          id: loadingId,
-          text: `
+            id: loadingId,
+            text: `
         <div class="typing-indicator">
-          <span></span><span></span><span></span>
+            <span></span><span></span><span></span>
         </div>
-      `,
-          sender: 'bot',
-          timestamp: new Date(),
-          isLoading: true
+        `,
+            sender: 'bot',
+            timestamp: new Date(),
+            isLoading: true
         });
 
         this.renderMessages({ autoScroll: 'bottom' });
-
-        if (this.useRest) {
-          try {
+        try {
             const res = await fetch(this.restUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'message', text: promptText, id: `rest-${Date.now()}` })
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    type: 'message', 
+                    text: promptText, 
+                    id: `rest-${Date.now()}` 
+                })
             });
             const data = await res.json();
             this.handleRestBotResponse(data);
-          } catch (err) {
+        } catch (err) {
             this._pushSystem("Sorry, can't reach server.");
-          }
-          return;
         }
-
-        if (this.ws && this.connectionStatus === 'connected') {
-          this.ws.send(JSON.stringify({ type: 'message', text: promptText }));
-        } else {
-          this._pushSystem("Connection error.");
-        }
-      }
+        return;
+    }
 
      _renderModelDropdown() {
       const dropdownContainer = this.shadowRoot.querySelector('.model-dropdown-container');
@@ -1694,40 +1618,6 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         dropdownContainer.innerHTML = '';
       }
     }
-      
-      _pushBot(d$1) {
-        this.messages = this.messages.filter(m => !m.isLoading); 
-        let html = '';
-        if(d$1.type==='image'){ 
-          html=`<img src="${d$1.data}" style="max-width:200px;max-height:200px;">`;
-        }else if(d$1.type==='markdown') {
-          try {
-             const decoded = (new DOMParser())
-            .parseFromString(String(d$1.data || ''), 'text/html')
-            .documentElement.textContent || String(d$1.data || '');
-
-              d.setOptions({ gfm: true, breaks: true });
-
-              // convert markdown to HTML and sanitize
-              const converted = d.parse(decoded);
-              const clean = DOMPurify.sanitize(converted);
-
-              html = `<div class="markdown">${clean}</div>`;
-
-            } catch (err) {
-              // fallback: preserve raw markdown in a pre block
-              html = `<pre class="markdown">${DOMPurify.sanitize(String(d$1.data || ''))}</pre>`;
-            }
-        } else {
-          html = d$1.text || '';
-        }
-        this.sessionId = d$1.session_id;
-        if (Array.isArray(d$1.models) && d$1.models.length > 0) {
-          this._setModels(d$1.models);
-        }
-        this.messages.push({id:Date.now(),text:html,sender:'bot',timestamp:new Date()});
-        this.renderMessages({ autoScroll: 'bottom' });
-      }
 
       async handleSend() {
         const input = this.shadowRoot.querySelector('.chat-input');
@@ -1761,28 +1651,20 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             input.style.height = '1px';
             input.placeholder = 'Type a message...';
             const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
-            if (this.useRest) {
+            try {
+              const res = await fetch(this.restUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'message', text: value, id: `rest-${Date.now()}`,sessionId: this.sessionId, editedFrom: originalEditId, model: modelToSend  })
+              });
               try {
-                const res = await fetch(this.restUrl, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ type: 'message', text: value, id: `rest-${Date.now()}`,tenant: this.tenant,code: this.code, sessionId: this.sessionId, editedFrom: originalEditId, model: modelToSend  })
-                });
-                if (!this.es) {
-                  try {
-                    const data = await res.json();
-                    this.handleRestBotResponse(data);
-                  } catch (e) {
-                    console.warn('REST edit response parsing failed or deferred to SSE', e);
-                  }
-                }
-              } catch (err) {
-                this._pushSystem("Sorry, can't reach server.");
+                const data = await res.json();
+                this.handleRestBotResponse(data);
+              } catch (e) {
+                console.warn('REST edit response parsing failed or deferred to SSE', e);
               }
-            } else if (this.ws) {
-              this.ws.send(JSON.stringify({ type: 'message', text: value,tenant: this.tenant,code: this.code, sessionId: this.sessionId, editedFrom: originalEditId, model: modelToSend  }));
-            } else {
-              this._pushSystem("Connection error.");
+            } catch (err) {
+              this._pushSystem("Sorry, can't reach server.");
             }
             return;
           }
@@ -1809,24 +1691,19 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
 
         const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
 
-        if (this.useRest) {
-          try {
-            const sessionId = localStorage.getItem('qsc_session_id') || this.sessionId || this._getSessionId();
-            const res = await fetch(this.restUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'message', text: value,tenant: this.tenant,code: this.code, sessionId: sessionId, id: `rest-${Date.now()}`, model: modelToSend  })
-            });
-            const data = await res.json();
-            this.handleRestBotResponse(data);
-          } catch {
-            this._pushSystem("Sorry, can't reach server.");
-          }
-          return;
+        try {
+          const sessionId = localStorage.getItem('qsc_session_id') || this.sessionId || this._getSessionId();
+          const res = await fetch(this.restUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'message', text: value, sessionId: sessionId, id: `rest-${Date.now()}`, model: modelToSend  })
+          });
+          const data = await res.json();
+          this.handleRestBotResponse(data);
+        } catch {
+          this._pushSystem("Sorry, can't reach server.");
         }
-        if (this.ws && this.connectionStatus === 'connected') {
-          this.ws.send(JSON.stringify({ type: 'message', text: value,tenant: this.tenant,code: this.code, sessionId: this.sessionId, model: modelToSend }));
-        } else this._pushSystem("Connection error.");
+        return;
       }
 
       handleClick(e) {
@@ -1835,7 +1712,10 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           this.isOpen = !this.isOpen;
           if (this.isOpen) this.unreadCount = 0;
           this.render();
-          if (this.isOpen) this.scrollToBottom();
+          if (this.isOpen) {
+            this.scrollToBottom();
+            this._fetchInitialMessage().catch(err => console.error(err));
+          }
           return;
         }
         
@@ -1888,66 +1768,90 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         if (data.type === 'image') {
           html = `<img src="${data.data}" alt="server image" style="max-width:200px;max-height:200px;">`;
         } else if (data.type === 'markdown') {
-          try {// escape HTML attributes safely
-              function escapeAttr(s) {
-                if (s == null) return "";
-                return String(s)
-                  .replace(/&/g, "&amp;")
-                  .replace(/"/g, "&quot;")
-                  .replace(/'/g, "&#39;")
-                  .replace(/</g, "&lt;")
-                  .replace(/>/g, "&gt;");
-              }
+            try {
+                // escape HTML attributes safely
+                function escapeAttr(s) {
+                  if (s == null) return "";
+                  return String(s)
+                    .replace(/&/g, "&amp;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#39;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;");
+                }
 
-              let raw = d.parse(data.data);
+                let raw = data.data;
 
-            
-
-              raw = raw.replace(
-                /\[\[QSCACTION:([^\]]+)\]\]/g,
-                function (_, params) {
-                  // Parse key-value pairs (type=value,label=value,prompt=value)
-                  const paramMap = {};
-                  params.split(',').forEach(pair => {
-                    const [key, ...valueParts] = pair.split('=');
-                    if (key && valueParts.length) {
-                      paramMap[key.trim()] = valueParts.join('=').trim();
+                raw = raw.replace(
+                  /\[\[QSCACTION\s+([^\]]+)\]\]/g,
+                  function (_, attributes) {
+                    
+                    const paramMap = {};
+                    
+                    const attrRegex = /(\w+)=("([^"\\]*(\\.[^"\\]*)*)"|'([^'\\]*(\\.[^'\\]*)*)')/g;
+                    let match;
+                    
+                    while ((match = attrRegex.exec(attributes)) !== null) {
+                      const key = match[1].trim();
+                      let value = '';
+                      
+                      if (match[2].startsWith('"')) {
+                        value = match[3] || ''; 
+                      } else {
+                        value = match[5] || ''; 
+                      }
+                      
+                      value = value.replace(/\\"/g, '"').replace(/\\'/g, "'");
+                      paramMap[key] = value.trim();
                     }
-                  });
-                  
-                  const type = escapeAttr(paramMap.type || '');
-                  const label = escapeAttr(paramMap.label || '');
-                  const prompt = escapeAttr(paramMap.prompt || '');
-                  
-                  return `<button class="action-button" data-action-type="${type}" data-action="${prompt}">${label}</button>`;
-                }
-              );
+                    
+                    const type = escapeAttr(paramMap.type || '');
+                    const label = escapeAttr(paramMap.label || '');
+                    const prompt = escapeAttr(paramMap.prompt || '');
+                    const uiPrompt = escapeAttr(paramMap.uiPrompt || '');
+                    const url = escapeAttr(paramMap.url || '');
+                    const style = escapeAttr(paramMap.style || '');
+                                    
+                    let buttonHtml = `<button class="action-button" data-action-type="${type}"`;
+                    
+                    // Add data attributes based on type
+                    if (type === 'submit' || type === 'submit-silent') {
+                      buttonHtml += ` data-action="${prompt}"`;
+                      if (uiPrompt) {
+                        buttonHtml += ` data-ui-prompt="${uiPrompt}"`;
+                      }
+                    } else if (type === 'url-open') {
+                      buttonHtml += ` data-url="${url}"`;
+                    }
+                    
+                    // Add style if provided
+                    if (style) {
+                      buttonHtml += ` style="${style}"`;
+                    }
+                    
+                    buttonHtml += `>${label}</button>`;
+                    
+                    return buttonHtml;
+                  }
+                );
 
-              // Group consecutive buttons into action containers
-              raw = raw.replace(
-                /((?:<button[^>]*>.*?<\/button>(?:\s*(?:<br\s*\/?>|\s)*)?)+)/gs, 
-                match => {
-                  const btns = Array.from(match.matchAll(/<button[^>]*>.*?<\/button>/gs), m => m[0]);
-                  if (!btns.length) return match;
-                  return `<div class="qsc-actions">${btns.join('')}</div>`;
-                }
-              );
+                raw = d.parse(raw);
 
-              const safeHtml = DOMPurify.sanitize(raw);
-              html = `<div class="markdown">${safeHtml}</div>`;
+                const safeHtml = DOMPurify.sanitize(raw);
+                html = `<div class="markdown">${safeHtml}</div>`;
 
-            } catch {
-              // fallback for unexpected parse errors
-              html = `<pre class="markdown">${data.data}</pre>`;
+              } catch {
+                // fallback for unexpected parse errors
+                html = `<pre class="markdown">${data.data}</pre>`;
+              }
+          } else if(data.type==='broadcast') {
+              let msg= data.text || data.message || data.data;
+              this._pushSystem(msg);
+              return;
             }
-        } else if(data.type==='broadcast') {
-            let msg= data.text || data.message || data.data;
-            this._pushSystem(msg);
-            return;
-          }
              else {
-          html = data.text || data.message || data.data;
-        }
+              html = data.text || data.message || data.data;
+            }
         this.messages.push({ id: Date.now(), text: html, sender: 'bot', timestamp: new Date() });
         this.renderMessages({ autoScroll: 'bottom' });
       }
@@ -2339,23 +2243,18 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         this.renderMessages({ autoScroll: 'bottom' });
         const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
 
-        if (this.useRest) {
-          try {
-            const res = await fetch(this.restUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId, model: modelToSend })
-            });
-            const data = await res.json();
-            this.handleRestBotResponse(data);
-          } catch (err) {
-            this._pushSystem("Sorry, can't reach server.");
-          }
-        } else if (this.ws && this.connectionStatus === 'connected') {
-          this.ws.send(JSON.stringify({ type: 'message', text: newVal, editedFrom: originalEditId, model: modelToSend }));
-        } else {
-          this._pushSystem("Connection error.");
+        try {
+          const res = await fetch(this.restUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId, model: modelToSend })
+          });
+          const data = await res.json();
+          this.handleRestBotResponse(data);
+        } catch (err) {
+          this._pushSystem("Sorry, can't reach server.");
         }
+        
       }
 
       _handleCancel(id) {
@@ -2472,25 +2371,20 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
 
           const originalEditId = id;
           this.editingId = null;
-              const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
+          const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
 
-          if (this.useRest) {
-            try {
-              const res = await fetch(this.restUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId,model:modelToSend })
-              });
-              const data = await res.json();
-              this.handleRestBotResponse(data);
-            } catch (err) {
-              this._pushSystem("Sorry, can't reach server.");
-            }
-          } else if (this.ws && this.connectionStatus === 'connected') {
-            this.ws.send(JSON.stringify({ type: 'message', text: newVal, editedFrom: originalEditId, model :modelToSend  }));
-          } else {
-            this._pushSystem("Connection error.");
+          try {
+            const res = await fetch(this.restUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId,model:modelToSend })
+            });
+            const data = await res.json();
+            this.handleRestBotResponse(data);
+          } catch (err) {
+            this._pushSystem("Sorry, can't reach server.");
           }
+          
         });
         if (this.editingId) {
           const bubble = this.shadowRoot.querySelector(`[data-msg-id="${id}"]`);
@@ -2665,10 +2559,41 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             
             const actionBtn = e.target.closest('.action-button');
             if (actionBtn) {
-              const action = e.target.getAttribute('data-action');
-              if (action) {
-                this._sendActionPrompt(action);
-              } return; }
+              const type = e.target.getAttribute('data-action-type');
+              switch (type) {
+                case 'submit':
+                  // Show uiPrompt to user and send prompt to server
+                  const action = actionBtn.getAttribute('data-action');
+                  const uiPrompt = actionBtn.getAttribute('data-ui-prompt');
+
+                  if (action && uiPrompt) {
+                    this._sendActionPrompt(action, uiPrompt, false);
+                  }else if (action) {
+                    this._sendActionPrompt(action, null, false);
+                  }
+                  break;
+                  
+                case 'submit-silent':
+                  // Send prompt to server without showing anything to user
+                  const silentAction = actionBtn.getAttribute('data-action');
+                  if (silentAction) {
+                    this._sendActionPrompt(silentAction, null, true);
+                  }
+                  break;
+                  
+                case 'url-open':
+                  // Open URL in new tab
+                  const url = actionBtn.getAttribute('data-url');
+                  if (url) {
+                    window.open(url, '_blank');
+                  }
+                  break;
+                  
+                default:
+                  console.warn('Unknown action type:', type);
+              }
+            return;
+            }
 
             const editBtn = e.target.closest('.edit-btn');
             if (editBtn) { this._handleEdit(editBtn.dataset.msgId); return; }
@@ -2759,25 +2684,15 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         background: #f1f1f1;
         border-radius: 20px;
       }
-      .qsc-actions {
-        display: inline-flex;      
-        gap: 8px;
-        justify-content: center;
-        align-items: center;
-        width: 100%;               
-        margin-bottom: 6px;
-      }
      .action-button {
-        padding: 8px 16px;
-        margin: 4px;
+        padding: 4px;
         border: none;
-        border-radius: 4px;
+        border-radius: 10px;
         cursor: pointer;
-        font-size: 14px;
-        background: linear-gradient(90deg,#0072ff,#7dd3fc);
-        color: #012;
+        font-size: 12px;
         transition: background 0.2s ease;
-        margin: 0; 
+        margin: 4px; 
+        white-space: nowrap;
       }
       .markdown table td img {
         width: 180px;
@@ -2805,16 +2720,15 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         background: transparent;
         border: 1.5px solid rgba(255,255,255,0.3);
         color: white;
-        padding: 8px 16px;
+        padding: 6px 8px;
         border-radius: 20px;
         cursor: pointer;
         font-size: 13px;
         font-weight: 500;
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 5px;
         transition: var(--transition);
-        margin-right: 8px;
         backdrop-filter: blur(10px);
         -webkit-backdrop-filter: blur(10px);
       }
@@ -3166,7 +3080,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       .header {
         background: var(--primary);
         color: white;
-        padding: 16px 20px;
+        padding: 14px;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -3182,7 +3096,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       .header-controls {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 7px;
       }
       
       .close-btn {
@@ -3190,8 +3104,8 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         border: none;
         color: white;
         cursor: pointer;
-        width: 36px;
-        height: 36px;
+        width: 32px;
+        height: 32px;
         border-radius: 50%;
         display: flex;
         align-items: center;
@@ -3204,43 +3118,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       .close-btn:hover {
         background: rgba(255, 255, 255, 0.2);
       }
-      
-      .connection-status {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 12px;
-        opacity: 0.9;
-        background: rgba(0, 0, 0, 0.2);
-        padding: 4px 8px;
-        border-radius: 20px;
-      }
-      
-      .status-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-      }
-      
-      .status-connected {
-        background: var(--success);
-      }
-      
-      .status-connecting {
-        background: #ffb900;
-        animation: pulse 1.5s infinite;
-      }
-      
-      .status-error {
-        background: var(--error);
-      }
-      
-      @keyframes pulse {
-        0% { opacity: 1; }
-        50% { opacity: 0.4; }
-        100% { opacity: 1; }
-      }
-      
+                
       .messages {
         flex: 1;
         overflow-y: auto;
@@ -3544,14 +3422,13 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         border: none;
         color: white;
         cursor: pointer;
-        width: 36px;
-        height: 36px;
+        width: 32px;
+        height: 32px;
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
         font-size: 18px;
-        margin-left: 4px;
       }
       .fullscreen-btn:hover, .minimize-btn:hover {
         background: rgba(255,255,255,0.2);
@@ -3565,13 +3442,6 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
               <div class="header-title">${this.headerTitle}</div>
               
               <div class="header-controls">
-              ${this.connectedStatus ? `
-                <div class="connection-status">
-                  <div class="status-dot ${this.connectionStatus === 'connected' ? 'status-connected' : 
-                    this.connectionStatus === 'connecting' ? 'status-connecting' : 'status-error'}"></div>
-                  <span>${this.connectionStatus}</span>
-                </div>
-                ` : ``}
                 <button class="new-chat-btn" title="Start new chat">
                   <span class="new-chat-icon"></span>
                   <span>New</span>
@@ -3717,21 +3587,18 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                 const sessionId = localStorage.getItem('qsc_session_id') || this.sessionId || this._getSessionId();
                 const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
 
-                if (this.ws && this.connectionStatus === 'connected') {
-                  this.ws.send(JSON.stringify({ type: 'image', data: base64, filename: file.name,model :modelToSend }));
-                } else if (this.useRest) {
-                  try {
-                   const response = await fetch(this.restUrl, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ id: this.restClientId, type: 'image', data: base64, filename: file.name,session_id: sessionId,model :modelToSend })
-                    });
-                    const data = await response.json();  
-                    this.handleRestBotResponse(data);
-                  } catch (err) {
-                    console.error('Error sending image via REST:', err);
-                  }
+                try {
+                  const response = await fetch(this.restUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: this.restClientId, type: 'image', data: base64, filename: file.name,session_id: sessionId,model :modelToSend })
+                  });
+                  const data = await response.json();  
+                  this.handleRestBotResponse(data);
+                } catch (err) {
+                  console.error('Error sending image via REST:', err);
                 }
+                
               };
               reader.readAsDataURL(file);
             } else if (file.name.endsWith('.md') || file.name.endsWith('.markdown')) {
@@ -3756,21 +3623,18 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                 const sessionId = localStorage.getItem('qsc_session_id') || this.sessionId || this._getSessionId();
                 const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
 
-                if (this.ws && this.connectionStatus === 'connected') {
-                  this.ws.send(JSON.stringify({ type: 'markdown', data: content, filename: file.name,model :modelToSend }));
-                } else if (this.useRest) {
-                  try {
-                    const response = await fetch(this.restUrl, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ id: Date.now(), type: 'markdown', data: content, filename: file.name, session_id: sessionId , model:modelToSend})
-                    });
-                    const data = await response.json();
-                    this.handleRestBotResponse(data);
-                  } catch (err) {
-                    console.error('Error sending markdown via REST:', err);
-                  }
+                try {
+                  const response = await fetch(this.restUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: Date.now(), type: 'markdown', data: content, filename: file.name, session_id: sessionId , model:modelToSend})
+                  });
+                  const data = await response.json();
+                  this.handleRestBotResponse(data);
+                } catch (err) {
+                  console.error('Error sending markdown via REST:', err);
                 }
+                
               };
               reader.readAsText(file);
             }

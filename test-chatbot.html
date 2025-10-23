@@ -366,13 +366,9 @@
         <div class="demo-box">
           <img src="./assets/QscChatbot.png" alt="QscChatbot" />
           <qsc-chatbot
-            rest-url="http://127.0.0.1:3000/agent/chat",
-            enable-rest-fallback="true",       
+            rest-url="https://qsc-dev.quasiris.de/api/v1/agent/chat/nassim/test-config",
             header-title="QSC Chatbot"
-            assistant-name="QSC Assistant"
             logo-path="./assets/bot.png"
-            connected-status="false"
-            attach-btn="false"
           ></qsc-chatbot>
         </div>
         <div class="demo-box">
@@ -389,30 +385,13 @@
         </div>
       </div>
     </div>
-    
-    <div class="code-header">
-      <h3>Implementation Code Websocket</h3>
-    </div>
-    <div class="code-container">
-      <pre><code>&lt;qsc-chatbot
-  ws-url="ws://your-websocket-server"
-  header-title="QSC Chatbot"
-  assistant-name="Qsc Assistant"
-  connected-status="true"
-  attach-btn="true"
-  logo-path="./path/to/logo.png"&gt;
-&lt;/qsc-chatbot&gt;</code></pre>
-    </div> 
     <div class="code-header">
       <h3>Implementation Code REST Api</h3>
     </div>
     <div class="code-container">
       <pre><code>&lt;qsc-chatbot
   rest-url="https://your-rest-api-endpoint"', 
-  enable-rest-fallback="true",       
   header-title="QSC Chatbot"
-  assistant-name="QSC Assistant"
-  connected-status="true"
   attach-btn="true"
   logo-path="./path/to/logo.png"&gt;
 &lt;/qsc-chatbot&gt;</code></pre>
