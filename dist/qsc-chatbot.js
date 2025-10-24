@@ -1450,8 +1450,9 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       async connectedCallback() {
         this.logoPath=this.getAttribute('logo-path');
         this.headerTitle=this.getAttribute('header-title') || 'QSC Chatbot';
+        this.errMsg=this.getAttribute('error-msg') || 'Connection to the server failed';
         this.attachBtn=this.getAttribute('attach-btn') === 'true';
-        this.restUrl = this.getAttribute('rest-url') || '';
+        this.restUrl = this.getAttribute('rest-url') || 'no-rest-url-provided';
         
         this.render();
       }
@@ -1484,7 +1485,9 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
           });
-
+          if (!res.ok) {
+            throw new Error(`HTTP error! Status: ${res.status}`);
+          }
           const data = await res.json();
           this.handleRestBotResponse(data);
           
@@ -1492,7 +1495,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           // remove loading indicator
           this.messages = this.messages.filter(m => !m.isLoading);
           // push readable error system message
-          this._pushSystem("Can't reach server for initial message.");
+          this._pushSystem(this.errMsg);
           console.error('Initial fetch failed', err);
         }
       }
@@ -1580,11 +1583,16 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                     id: `rest-${Date.now()}` 
                 })
             });
+            if (!res.ok) {
+                throw new Error(`HTTP error! Status: ${res.status}`);
+              }
             const data = await res.json();
             this.handleRestBotResponse(data);
         } catch (err) {
-            this._pushSystem("Sorry, can't reach server.");
-        }
+            this.messages = this.messages.filter(m => !m.isLoading);
+            this._pushSystem(this.errMsg);
+            console.error('Action fetch failed', err);
+          }
         return;
     }
 
@@ -1657,14 +1665,16 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ type: 'message', text: value, id: `rest-${Date.now()}`,sessionId: this.sessionId, editedFrom: originalEditId, model: modelToSend  })
               });
-              try {
-                const data = await res.json();
-                this.handleRestBotResponse(data);
-              } catch (e) {
-                console.warn('REST edit response parsing failed or deferred to SSE', e);
+              if (!res.ok) {
+                throw new Error(`HTTP error! Status: ${res.status}`);
               }
+              const data = await res.json();
+              this.handleRestBotResponse(data);
+            
             } catch (err) {
-              this._pushSystem("Sorry, can't reach server.");
+               this.messages = this.messages.filter(m => !m.isLoading);
+               this._pushSystem(this.errMsg);
+               console.error('Send fetch failed', err);
             }
             return;
           }
@@ -1698,10 +1708,15 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ type: 'message', text: value, sessionId: sessionId, id: `rest-${Date.now()}`, model: modelToSend  })
           });
+          if (!res.ok) {
+                throw new Error(`HTTP error! Status: ${res.status}`);
+              }
           const data = await res.json();
           this.handleRestBotResponse(data);
-        } catch {
-          this._pushSystem("Sorry, can't reach server.");
+        } catch (err){
+          this.messages = this.messages.filter(m => !m.isLoading);
+          this._pushSystem(this.errMsg);
+          console.error('Send fetch failed', err);
         }
         return;
       }
@@ -2249,10 +2264,15 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId, model: modelToSend })
           });
+           if (!res.ok) {
+              throw new Error(`HTTP error! Status: ${res.status}`);
+            }
           const data = await res.json();
           this.handleRestBotResponse(data);
         } catch (err) {
-          this._pushSystem("Sorry, can't reach server.");
+          this.messages = this.messages.filter(m => !m.isLoading);
+          this._pushSystem(this.errMsg);
+          console.error('Send fetch failed', err);
         }
         
       }
@@ -2379,10 +2399,15 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId,model:modelToSend })
             });
+             if (!res.ok) {
+                throw new Error(`HTTP error! Status: ${res.status}`);
+              }
             const data = await res.json();
             this.handleRestBotResponse(data);
           } catch (err) {
-            this._pushSystem("Sorry, can't reach server.");
+            this.messages = this.messages.filter(m => !m.isLoading);
+            this._pushSystem(this.errMsg);
+            console.error('Send fetch failed', err);
           }
           
         });
@@ -2514,7 +2539,6 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             return `
           <div class="message-row system">
             <div class="bubble system">
-              <div class="system-icon">📢</div>
               <div class="message-text" data-msg-id="${m.id}">${m.text}</div>
               <div class="timestamp">${this.formatTime(m.timestamp)}</div>
             </div>
@@ -3182,10 +3206,6 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         gap: 10px;
         max-width: 95%;
       }
-      
-      .system-icon {
-        font-size: 16px;
-      }
       .message-text {
         flex: 1;
         font-size: 13px;
@@ -3593,10 +3613,15 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id: this.restClientId, type: 'image', data: base64, filename: file.name,session_id: sessionId,model :modelToSend })
                   });
+                   if (!res.ok) {
+                    throw new Error(`HTTP error! Status: ${res.status}`);
+                  }
                   const data = await response.json();  
                   this.handleRestBotResponse(data);
                 } catch (err) {
-                  console.error('Error sending image via REST:', err);
+                  this.messages = this.messages.filter(m => !m.isLoading);
+                  this._pushSystem(this.errMsg);
+                  console.error('Send fetch failed', err);
                 }
                 
               };
@@ -3629,10 +3654,15 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id: Date.now(), type: 'markdown', data: content, filename: file.name, session_id: sessionId , model:modelToSend})
                   });
+                   if (!res.ok) {
+                    throw new Error(`HTTP error! Status: ${res.status}`);
+                  }
                   const data = await response.json();
                   this.handleRestBotResponse(data);
                 } catch (err) {
-                  console.error('Error sending markdown via REST:', err);
+                  this.messages = this.messages.filter(m => !m.isLoading);
+                  this._pushSystem(this.errMsg);
+                  console.error('Send fetch failed', err);
                 }
                 
               };
