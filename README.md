@@ -1,6 +1,6 @@
 # QSC Chatbot UI
 
-A professional, modern chatbot web component with real-time WebSocket/REST support.
+A professional, modern chatbot web component.
 
 ---
 
@@ -38,10 +38,9 @@ plugins: [
     '@quasiris/qsc-chatbot-ui',
     {
       headerTitle: 'Qsc Chatbot',        
-      assistantName: 'Qsc assistant',    
       logoPath: './img/bot.png',        
       restUrl: 'http://localhost:8000/rest', 
-      enableRestFallback: true,             
+      attachBtn: true,             
     },
   ],
 ],
@@ -49,10 +48,11 @@ plugins: [
 ---
 ## API References
 
-- `restUrl` (string, optional): REST endpoint for fallback if WebSocket is unavailable.
-- `headerTitle` (string, optional): Title displayed in the chatbot header.
-- `assistantName` (string, optional): Name used in the welcome message.
-- `logoPath` (string, optional): Path to your logo image. If the image fails to load, the fallback "Qsc" text will be shown.
+- `rest-url` (required) -The URL of your backend chat endpoint. All messages will be sent here.
+- `header-title` (Optional) -Text shown at the top of the chat window, e.g. Qsc Chatbot”.
+- `attach-btn` (Optional) - Set to "true" if you want users to upload images or Markdown files.
+- `logo-path` (Optional) -Path to the image shown on the round toggle button that opens the chat.
+- `error-msg` (Optional) -Friendly message shown when the REST call fails (e.g. “Server unreachable”).
 
 If the `logoPath` is invalid or the image cannot be loaded, the plugin will automatically display a styled "Qsc" text as a fallback.
 
@@ -116,7 +116,7 @@ The chatbot UI supports the following message types in server responses:
 ## Features
 
 - Modern, clean UI with smooth animations
-- Real-time WebSocket communication
+- Real-time REST communication
 - Broadcast notifications when chat is closed
 - Message history with timestamps
 - Responsive design for all devices

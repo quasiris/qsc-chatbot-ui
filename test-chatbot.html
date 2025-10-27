@@ -326,7 +326,7 @@
     <div class="features">
       <div class="feature-card">
         <h3><span class="feature-icon">💬</span> Real-time Chat</h3>
-        <p>WebSocket integration for instant messaging with connection status indicators.</p>
+        <p>REST integration for instant messaging with connection status indicators.</p>
       </div>
       <div class="feature-card">
         <h3><span class="feature-icon">📢</span> Broadcast Messages</h3>
@@ -345,7 +345,7 @@
           <p>This professional chatbot features:</p>
           <ul style="padding-left: 1.5rem; margin-bottom: 1.5rem; color: #495057; line-height: 1.7;">
             <li>Modern, clean UI with smooth animations</li>
-            <li>Real-time WebSocket communication</li>
+            <li>Real-time REST communication</li>
             <li>Broadcast notifications when chat is closed</li>
             <li>Connection status indicators</li>
             <li>Message history with timestamps</li>
@@ -387,14 +387,15 @@
       </div>
     </div>
     <div class="code-header">
-      <h3>Implementation Code REST Api</h3>
+      <h3>Integration Code </h3>
     </div>
     <div class="code-container">
       <pre><code>&lt;qsc-chatbot
   rest-url="https://your-rest-api-endpoint"', 
   header-title="QSC Chatbot"
   attach-btn="true"
-  logo-path="./path/to/logo.png"&gt;
+  logo-path="./path/to/logo.png"
+  error-msg="Server connection failed. If this persists, contact support at info@quasiris.com"&gt;
 &lt;/qsc-chatbot&gt;</code></pre>
     </div>
   </div>
