@@ -504,12 +504,11 @@ class QscChatbot extends HTMLElement {
       const key = 'qsc_session_id';
       let id = localStorage.getItem(key);
       if (!id) {
-        id = 'sess-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,10);
-        localStorage.setItem(key, id);
+        localStorage.setItem(key, null);
       }
       return id;
     } catch (e) {
-      return 'sess-ephemeral-' + Date.now().toString(36);
+      return null;
     }
   }
 
@@ -1305,7 +1304,7 @@ class QscChatbot extends HTMLElement {
         border-radius: 20px;
       }
      .action-button {
-        padding: 4px;
+        padding: 4px 8px;
         border: none;
         border-radius: 10px;
         cursor: pointer;
