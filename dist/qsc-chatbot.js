@@ -1546,7 +1546,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       }
       async _sendActionPrompt(promptText, uiPrompt = null, isSilent = false) {
         if (!promptText) throw new Error('Empty prompt');
-        
+        const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
         if (!isSilent) {
             const displayText = uiPrompt || promptText;
             if (displayText) {
@@ -1579,7 +1579,8 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     type: 'message', 
-                    text: promptText, 
+                    text: promptText,
+                    model: modelToSend, 
                     id: `rest-${Date.now()}` 
                 })
             });
