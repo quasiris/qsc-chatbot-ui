@@ -176,7 +176,8 @@ class QscChatbot extends HTMLElement {
             body: JSON.stringify({ 
                 type: 'message', 
                 text: promptText,
-                model: modelToSend, 
+                model: modelToSend,
+                sessionId: this.sessionId, 
                 id: `rest-${Date.now()}` 
             })
         });
@@ -505,7 +506,7 @@ class QscChatbot extends HTMLElement {
       const key = 'qsc_session_id';
       let id = localStorage.getItem(key);
       if (!id) {
-        localStorage.setItem(key, null);
+        localStorage.removeItem(key);
       }
       return id;
     } catch (e) {

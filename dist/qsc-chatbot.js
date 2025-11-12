@@ -1580,7 +1580,8 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                 body: JSON.stringify({ 
                     type: 'message', 
                     text: promptText,
-                    model: modelToSend, 
+                    model: modelToSend,
+                    sessionId: this.sessionId, 
                     id: `rest-${Date.now()}` 
                 })
             });
@@ -1909,7 +1910,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           const key = 'qsc_session_id';
           let id = localStorage.getItem(key);
           if (!id) {
-            localStorage.setItem(key, null);
+            localStorage.removeItem(key);
           }
           return id;
         } catch (e) {
