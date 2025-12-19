@@ -1,13 +1,16 @@
 import { marked } from 'marked';
 import createDOMPurify from 'dompurify';
 const DOMPurify = createDOMPurify(window);
+
 class QscChatbot extends HTMLElement {
   constructor() {
-    super(); this.attachShadow({mode:'open'});
-    this.isOpen=false; this.isFullscreen=false; this.isMinimized=false;
+    super();
+    this.attachShadow({mode:'open'});
+    this.isOpen=false; 
+    this.isFullscreen=false; 
+    this.isMinimized=false;
     this.messages=[];
     this.unreadCount=0;
-    this.restClientId = null;
     this.editingId = null;
     this._initialFetched = false;
     this._copyTimers = {}; 
@@ -16,6 +19,10 @@ class QscChatbot extends HTMLElement {
     this.receivedModels = [];      
     this.selectedModel = null;
     this.showModelMenu = false;
+    this._isStreaming = false;
+    this.serverStreamingEnabled = false;
+    this._streamingUpdateTimeouts = {};
+
      this._copySVG = `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -30,6 +37,93 @@ class QscChatbot extends HTMLElement {
       </svg>
     `;
   }
+
+  _isUserAtBottom() {
+    const messagesDiv = this.shadowRoot.querySelector('.messages');
+    if (!messagesDiv) return true;
+    const threshold = 100;
+    const position = messagesDiv.scrollTop + messagesDiv.clientHeight;
+    const height = messagesDiv.scrollHeight;
+    return position >= height - threshold;
+  }
+
+  _scrollToBottom() {
+    const messagesDiv = this.shadowRoot.querySelector('.messages');
+    if (messagesDiv) {
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+  }
+
+  _debouncedStreamingUpdate(id, rawMarkdown, streaming = true, delay = 50) {
+    if (this._streamingUpdateTimeouts[id]) {
+      clearTimeout(this._streamingUpdateTimeouts[id]);
+    }
+    
+    this._streamingUpdateTimeouts[id] = setTimeout(() => {
+      this._updateStreamingMessage(id, rawMarkdown, streaming);
+      delete this._streamingUpdateTimeouts[id];
+    }, delay);
+  }
+
+  _updateStreamingMessage(id, rawMarkdown, isStreaming = true) {
+
+    const messageText = this.shadowRoot.querySelector(`.message-text[data-msg-id="${id}"]`);
+    
+    if (!messageText) {
+      console.warn('Message text element not found for ID:', id);
+      return;
+    }
+
+    try {
+      
+      if (!rawMarkdown || rawMarkdown.trim() === '') {
+
+        if (!messageText.querySelector('.typing-indicator')) {
+          messageText.innerHTML = `
+            <div class="typing-indicator">
+              <span></span><span></span><span></span>
+            </div>
+          `;
+        }
+        
+      } else {
+        const typingIndicator = messageText.querySelector('.typing-indicator');
+        if (typingIndicator) {
+          typingIndicator.remove();
+        }
+        
+        const html = this._processMarkdown(rawMarkdown, isStreaming);
+        
+        let finalHtml = html;
+        if (isStreaming) {
+           finalHtml = html + `
+              <div class="streaming-indicator">
+                <span></span><span></span><span></span>
+              </div>
+            `;
+        }
+        
+        messageText.innerHTML = finalHtml;
+                
+        this._splitAndRenderMultipleJsons();
+        this._formatAndHighlightJson();
+        this._attachCodeCopyButtons();
+        
+      }
+    } catch (e) {
+      console.warn("Markdown parse error:", e);
+      let finalHtml = `<pre>${this._escapeHtml(rawMarkdown)}</pre>`;
+        if (isStreaming) {
+         finalHtml += `
+            <div class="streaming-indicator" style="display:inline-flex; margin-left:8px;">
+              <span></span><span></span><span></span>
+            </div>
+          `;
+        }
+        messageText.innerHTML = finalHtml;
+    }
+  }
+
   _startNewChat() {
     this.sessionId = null;
     try {
@@ -43,6 +137,7 @@ class QscChatbot extends HTMLElement {
     this.renderMessages({ autoScroll: 'bottom' });
     this.render();
   }
+
   async connectedCallback() {
     this.logoPath=this.getAttribute('logo-path');
     this.headerTitle=this.getAttribute('header-title') || 'QSC Chatbot';
@@ -52,6 +147,7 @@ class QscChatbot extends HTMLElement {
     
     this.render();
   }
+
   async _fetchInitialMessage() {
     if (this._initialFetched) return;
     this._initialFetched = true;
@@ -85,12 +181,16 @@ class QscChatbot extends HTMLElement {
         throw new Error(`HTTP error! Status: ${res.status}`);
       }
       const data = await res.json();
+
+      if (Array.isArray(data.models) && data.models.length > 0) {
+        this._setModels(data.models);
+      }
+
       this.handleRestBotResponse(data);
       
     } catch (err) {
       // remove loading indicator
       this.messages = this.messages.filter(m => !m.isLoading);
-      // push readable error system message
       this._pushSystem(this.errMsg);
       console.error('Initial fetch failed', err);
     }
@@ -131,157 +231,37 @@ class QscChatbot extends HTMLElement {
     this.showModelMenu = false;
     this.render();
   }
+
   _removeSelectedModel() {
     this.selectedModel = null;
     this.render();
   }
+
   _pushSystem(txt) {
     this.messages.push({id:Date.now(),text:txt,sender:'system',timestamp:new Date()});
     if(!this.isOpen){ this.showBroadcastPopup(txt); this.unreadCount++; }
     this.renderMessages({ autoScroll: 'bottom' });
   }
+
   async _sendActionPrompt(promptText, uiPrompt = null, isSilent = false) {
     if (!promptText) throw new Error('Empty prompt');
     const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
+    
     if (!isSilent) {
-        const displayText = uiPrompt || promptText;
-        if (displayText) {
-            this.messages.push({ 
-                id: `action-${Date.now()}`, 
-                text: displayText, 
-                sender: 'user', 
-                timestamp: new Date() 
-            });
-        }
-    }
-
-    const loadingId = Date.now() + '-loading';
-    this.messages.push({
-        id: loadingId,
-        text: `
-        <div class="typing-indicator">
-            <span></span><span></span><span></span>
-        </div>
-        `,
-        sender: 'bot',
-        timestamp: new Date(),
-        isLoading: true
-    });
-
-    this.renderMessages({ autoScroll: 'bottom' });
-    try {
-        const res = await fetch(this.restUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                type: 'message', 
-                text: promptText,
-                model: modelToSend,
-                sessionId: this.sessionId, 
-                id: `rest-${Date.now()}` 
-            })
+      const displayText = uiPrompt || promptText;
+      if (displayText) {
+        this.messages.push({ 
+          id: `action-${Date.now()}`, 
+          text: displayText, 
+          sender: 'user', 
+          timestamp: new Date() 
         });
-        if (!res.ok) {
-            throw new Error(`HTTP error! Status: ${res.status}`);
-          }
-        const data = await res.json();
-        this.handleRestBotResponse(data);
-    } catch (err) {
-        this.messages = this.messages.filter(m => !m.isLoading);
-        this._pushSystem(this.errMsg);
-        console.error('Action fetch failed', err);
-      }
-    return;
-}
-
- _renderModelDropdown() {
-  const dropdownContainer = this.shadowRoot.querySelector('.model-dropdown-container');
-  if (!dropdownContainer) return;
-
-  if (this.receivedModels && this.receivedModels.length > 0 && this.showModelMenu) {
-    dropdownContainer.innerHTML = `
-      <div class="model-dropdown">
-          ${this.receivedModels.map(model => `
-                        <button class="model-item ${this.selectedModel && this.selectedModel.model === model.model ? 'selected' : ''}" 
-                                data-model="${model.model}">
-                          <span>${model.label}</span>
-                          ${this.selectedModel && this.selectedModel.model === model.model ? '✓' : ''}
-                        </button>
-                      `).join('')}
-      </div>
-    `;
-
-    dropdownContainer.querySelectorAll('.model-item').forEach(option => {
-      option.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const modelValue = option.getAttribute('data-model');
-        const selected = this.receivedModels.find(m => m.model === modelValue);
-        if (selected) 
-          this._selectModel(selected);
-      });
-    });
-  } else {
-    dropdownContainer.innerHTML = '';
-  }
-}
-
-  async handleSend() {
-    const input = this.shadowRoot.querySelector('.chat-input');
-    const value = input.value.trim();
-    if (!value) return;
-    if (this.editingId) {
-      const idx = this._findIndexById(this.editingId);
-      if (idx === -1) {
-        this.editingId = null;
-      } else {
-        this.messages[idx].text = value;
-        this.messages[idx].timestamp = new Date();
-        this._removeMessagesAfterIndex(idx);
-        const loadingId = Date.now() + '-loading';
-        this.messages.push({
-          id: loadingId,
-          text: `
-            <div class="typing-indicator">
-              <span></span><span></span><span></span>
-            </div>
-          `,
-          sender: 'bot',
-          timestamp: new Date(),
-          isLoading: true
-        });
-        this.renderMessages({ autoScroll: 'bottom' });
-
-        const originalEditId = this.editingId;
-        this.editingId = null;
-        input.value = '';
-        input.style.height = '1px';
-        input.placeholder = 'Type a message...';
-        const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
-        try {
-          const res = await fetch(this.restUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'message', text: value, id: `rest-${Date.now()}`,sessionId: this.sessionId, editedFrom: originalEditId, model: modelToSend  })
-          });
-          if (!res.ok) {
-            throw new Error(`HTTP error! Status: ${res.status}`);
-          }
-          const data = await res.json();
-          this.handleRestBotResponse(data);
-        
-        } catch (err) {
-           this.messages = this.messages.filter(m => !m.isLoading);
-           this._pushSystem(this.errMsg);
-           console.error('Send fetch failed', err);
-        }
-        return;
       }
     }
 
-    this.messages.push({ id: Date.now(), text: value, sender: 'user', timestamp: new Date() });
-    const loadingId = Date.now() + '-loading';
+    const botMsgId = 'bot-action-' + Date.now();
     this.messages.push({
-      id: loadingId,
+      id: botMsgId,
       text: `
         <div class="typing-indicator">
           <span></span><span></span><span></span>
@@ -289,7 +269,173 @@ class QscChatbot extends HTMLElement {
       `,
       sender: 'bot',
       timestamp: new Date(),
-      isLoading: true
+      isLoading: true,
+      isStreaming: false
+    });
+
+    this.renderMessages({ autoScroll: 'bottom' });
+    
+    try {
+      const res = await fetch(this.restUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          type: 'message', 
+          text: promptText,
+          model: modelToSend,
+          sessionId: this.sessionId, 
+          id: `rest-${Date.now()}` 
+        })
+      });
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! Status: ${res.status}`);
+      }
+
+      if (this.serverStreamingEnabled && res.body) {
+
+        // Remove loading and create streaming message
+        this.messages = this.messages.filter(m => m.id !== botMsgId);
+        const streamingBotMsgId = 'bot-action-stream-' + Date.now();
+        this.messages.push({
+          id: streamingBotMsgId,
+          text: '',
+          sender: 'bot',
+          timestamp: new Date(),
+          isLoading: false,
+          isStreaming: true
+        });
+        this.renderMessages({ autoScroll: 'bottom' });
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+
+            const lines = chunk.split('\n');
+            
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              
+              try {
+                const json = JSON.parse(line);
+                
+                if (json.type === 'broadcast') {
+                  this._pushSystem(json.data);
+                } 
+                if (json.session_id) {
+                  this.sessionId = json.session_id;
+                  localStorage.setItem('qsc_session_id', this.sessionId);
+                } 
+                if (json.data !== undefined) {
+                  fullText += json.data;
+                  
+                  const index = this.messages.findIndex(m => m.id === streamingBotMsgId);
+                  if (index !== -1) {
+                    this.messages[index].text = fullText;
+                    this.messages[index].timestamp = new Date();
+                    
+                    this._debouncedStreamingUpdate(streamingBotMsgId, fullText, true, 50);
+                    
+                    if (this._isUserAtBottom()) {
+                      this._scrollToBottom();
+                    }
+                  }
+                }
+              } catch (e) {
+                console.warn('Stream parse error in action:', e);
+              }
+            }
+          }
+        } finally {
+          // Mark as done streaming
+          const index = this.messages.findIndex(m => m.id === streamingBotMsgId);
+          if (index !== -1) {
+            this.messages[index].isStreaming = false;
+            this._updateStreamingMessage(streamingBotMsgId, fullText, false);
+          }
+        }
+      } else {
+        
+        const data = await res.json();
+        this.messages = this.messages.filter(m => m.id !== botMsgId);
+        this.handleRestBotResponse(data);
+
+      }
+    } catch (err) {
+      this.messages = this.messages.filter(m => !m.isLoading && !m.isStreaming);
+      this._pushSystem(this.errMsg);
+      console.error('Action fetch failed', err);
+    }
+  }
+
+  _renderModelDropdown() {
+    const dropdownContainer = this.shadowRoot.querySelector('.model-dropdown-container');
+    if (!dropdownContainer) return;
+
+    if (this.receivedModels && this.receivedModels.length > 0 && this.showModelMenu) {
+      dropdownContainer.innerHTML = `
+        <div class="model-dropdown">
+            ${this.receivedModels.map(model => `
+                          <button class="model-item ${this.selectedModel && this.selectedModel.model === model.model ? 'selected' : ''}" 
+                                  data-model="${model.model}">
+                            <span>${model.label}</span>
+                            ${this.selectedModel && this.selectedModel.model === model.model ? '✓' : ''}
+                          </button>
+                        `).join('')}
+        </div>
+      `;
+
+      dropdownContainer.querySelectorAll('.model-item').forEach(option => {
+        option.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const modelValue = option.getAttribute('data-model');
+          const selected = this.receivedModels.find(m => m.model === modelValue);
+          if (selected) 
+            this._selectModel(selected);
+        });
+      });
+    } else {
+      dropdownContainer.innerHTML = '';
+    }
+  }
+
+  async handleSend() {
+    const input = this.shadowRoot.querySelector('.chat-input');
+    const value = input.value.trim();
+    if (!value) return;
+    
+    if (this.editingId) {
+      await this._handleEditSend(value);
+      return;
+    }
+
+    // Regular send case
+    this.messages.push({ 
+      id: Date.now(), 
+      text: value, 
+      sender: 'user', 
+      timestamp: new Date() 
+    });
+    
+    const botMsgId = 'bot-' + Date.now();
+    this.messages.push({
+      id: botMsgId,
+      text: `
+        <div class="typing-indicator">
+          <span></span><span></span><span></span>
+        </div>
+      `,
+      sender: 'bot',
+      timestamp: new Date(),
+      isLoading: true,
+      isStreaming: false
     });
 
     this.renderMessages({ autoScroll: 'bottom' });
@@ -297,26 +443,173 @@ class QscChatbot extends HTMLElement {
     this.inputValue = '';
     input.style.height = 'auto';
 
+    await this._sendMessageToServer(value, botMsgId);
+  }
+
+  async _handleEditSend(value) {
+    const idx = this._findIndexById(this.editingId);
+    if (idx === -1) {
+      this.editingId = null;
+      return;
+    }
+
+    this.messages[idx].text = value;
+    this.messages[idx].timestamp = new Date();
+    this._removeMessagesAfterIndex(idx);
+
+    const botMsgId = 'bot-edit-' + Date.now();
+    this.messages.push({
+      id: botMsgId,
+      text: `
+        <div class="typing-indicator">
+          <span></span><span></span><span></span>
+        </div>
+      `,
+      sender: 'bot',
+      timestamp: new Date(),
+      isLoading: true,
+      isStreaming: false
+    });
+
+    this.renderMessages({ autoScroll: 'bottom' });
+
+    const originalEditId = this.editingId;
+    this.editingId = null;
+    const input = this.shadowRoot.querySelector('.chat-input');
+    input.value = '';
+    input.style.height = '1px';
+    input.placeholder = 'Type a message...';
+
+    await this._sendMessageToServer(value, botMsgId, originalEditId);
+  }
+  
+
+  async _sendMessageToServer(text, botMsgId, editedFrom = null) {
     const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
+    const sessionId = localStorage.getItem('qsc_session_id') || this.sessionId || this._getSessionId();
 
     try {
-      const sessionId = localStorage.getItem('qsc_session_id') || this.sessionId || this._getSessionId();
       const res = await fetch(this.restUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'message', text: value, sessionId: sessionId, id: `rest-${Date.now()}`, model: modelToSend  })
+        body: JSON.stringify({ 
+          type: 'message', 
+          text: text, 
+          sessionId: sessionId, 
+          id: `rest-${Date.now()}`, 
+          model: modelToSend,
+          editedFrom: editedFrom
+        })
       });
+      
       if (!res.ok) {
-            throw new Error(`HTTP error! Status: ${res.status}`);
+        throw new Error(`HTTP error! Status: ${res.status}`);
+      }
+
+
+      if (this.serverStreamingEnabled && res.body) {
+        
+        // Remove loading message and create streaming message
+        this.messages = this.messages.filter(m => m.id !== botMsgId);
+        const streamingBotMsgId = 'bot-stream-' + Date.now();
+        this.messages.push({
+          id: streamingBotMsgId,
+          text: '',
+          sender: 'bot',
+          timestamp: new Date(),
+          isLoading: false,
+          isStreaming: true
+        });
+        this.renderMessages({ autoScroll: 'bottom' });
+
+        // Get the reader
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              break;
+            }
+
+            const chunk = decoder.decode(value, { stream: true });
+            
+            // Split by newlines and process each line
+            const lines = chunk.split('\n');
+            
+            for (const line of lines) {
+              if (!line.trim()) continue;
+                            
+              try {
+                const json = JSON.parse(line);
+                
+                // Handle different message types
+                if (json.type === 'broadcast') {
+                  this._pushSystem(json.data);
+                } 
+                if (json.session_id) {
+                  this.sessionId = json.session_id;
+                  localStorage.setItem('qsc_session_id', this.sessionId);
+                } 
+                if (json.data !== undefined) {
+                  fullText += json.data;
+                  
+                  const index = this.messages.findIndex(m => m.id === streamingBotMsgId);
+                  if (index !== -1) {
+                    this.messages[index].text = fullText;
+                    this.messages[index].timestamp = new Date();
+                    
+                   
+                    this._debouncedStreamingUpdate(streamingBotMsgId, fullText, true, 50);
+                    
+                    if (this._isUserAtBottom()) {
+                      this._scrollToBottom();
+                    }
+                  }
+                }
+              } catch (e) {
+                console.warn('JSON parse error:', e);
+              }
+            }
           }
-      const data = await res.json();
-      this.handleRestBotResponse(data);
-    } catch (err){
-      this.messages = this.messages.filter(m => !m.isLoading);
+        } finally {
+            const index = this.messages.findIndex(m => m.id === streamingBotMsgId);
+            if (index !== -1) {
+              this.messages[index].isStreaming = false;
+              
+              if (fullText.trim() !== '') {
+                this._updateStreamingMessage(streamingBotMsgId, fullText, false);
+              } else {
+                // If still empty after stream ends, show a fallback message
+                const messageText = this.shadowRoot.querySelector(`.message-text[data-msg-id="${streamingBotMsgId}"]`);
+                if (messageText) {
+                  messageText.innerHTML = `<em>No response received</em>`;
+                }
+              }
+              
+              // Remove streaming styling
+              const bubble = this.shadowRoot.querySelector(`[data-msg-id="${streamingBotMsgId}"] .bubble.bot`);
+              if (bubble) {
+                bubble.classList.remove('message-streaming');
+              }
+            }
+          }
+      } else {
+       
+        const data = await res.json();
+        
+        // Remove loading message
+        this.messages = this.messages.filter(m => m.id !== botMsgId);
+        this.handleRestBotResponse(data);
+      }
+      
+    } catch (err) {
+      console.error('Send fetch failed:', err);
+      this.messages = this.messages.filter(m => !m.isLoading && !m.isStreaming);
       this._pushSystem(this.errMsg);
-      console.error('Send fetch failed', err);
     }
-    return;
   }
 
   handleClick(e) {
@@ -336,6 +629,7 @@ class QscChatbot extends HTMLElement {
       this.handleSend();
     }
   }
+
   _autoResizeChatInput() {
     const input = this.shadowRoot && this.shadowRoot.querySelector('.chat-input');
     if (!input) return;
@@ -369,105 +663,171 @@ class QscChatbot extends HTMLElement {
   }
 
   handleRestBotResponse(data) {
-    this.messages = this.messages.filter(m => !m.isLoading);
+    
+    this.messages = this.messages.filter(m => !m.isLoading && !m.isStreaming);
+
     if (data.session_id && !this.sessionId) {
       this.sessionId = data.session_id;
       localStorage.setItem('qsc_session_id', this.sessionId);
     }
-    if (Array.isArray(data.models) && data.models.length > 0) {
-      this._setModels(data.models);
+
+    if (data.streaming !== undefined) {
+      this.serverStreamingEnabled = data.streaming;
     }
-    let html = '';
-    if (data.type === 'image') {
-      html = `<img src="${data.data}" alt="server image" style="max-width:200px;max-height:200px;">`;
-    } else if (data.type === 'markdown') {
-        try {
-            // escape HTML attributes safely
-            function escapeAttr(s) {
-              if (s == null) return "";
-              return String(s)
-                .replace(/&/g, "&amp;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#39;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;");
-            }
 
-            let raw = data.data;
-
-            raw = raw.replace(
-              /\[\[QSCACTION\s+([^\]]+)\]\]/g,
-              function (_, attributes) {
-                
-                const paramMap = {};
-                
-                const attrRegex = /(\w+)=("([^"\\]*(\\.[^"\\]*)*)"|'([^'\\]*(\\.[^'\\]*)*)')/g;
-                let match;
-                
-                while ((match = attrRegex.exec(attributes)) !== null) {
-                  const key = match[1].trim();
-                  let value = '';
-                  
-                  if (match[2].startsWith('"')) {
-                    value = match[3] || ''; 
-                  } else {
-                    value = match[5] || ''; 
-                  }
-                  
-                  value = value.replace(/\\"/g, '"').replace(/\\'/g, "'");
-                  paramMap[key] = value.trim();
-                }
-                
-                const type = escapeAttr(paramMap.type || '');
-                const label = escapeAttr(paramMap.label || '');
-                const prompt = escapeAttr(paramMap.prompt || '');
-                const uiPrompt = escapeAttr(paramMap.uiPrompt || '');
-                const url = escapeAttr(paramMap.url || '');
-                const style = escapeAttr(paramMap.style || '');
-                                
-                let buttonHtml = `<button class="action-button" data-action-type="${type}"`;
-                
-                // Add data attributes based on type
-                if (type === 'submit' || type === 'submit-silent') {
-                  buttonHtml += ` data-action="${prompt}"`;
-                  if (uiPrompt) {
-                    buttonHtml += ` data-ui-prompt="${uiPrompt}"`;
-                  }
-                } else if (type === 'url-open') {
-                  buttonHtml += ` data-url="${url}"`;
-                }
-                
-                // Add style if provided
-                if (style) {
-                  buttonHtml += ` style="${style}"`;
-                }
-                
-                buttonHtml += `>${label}</button>`;
-                
-                return buttonHtml;
-              }
-            );
-
-            raw = marked.parse(raw);
-
-            const safeHtml = DOMPurify.sanitize(raw);
-            html = `<div class="markdown">${safeHtml}</div>`;
-
-          } catch {
-            // fallback for unexpected parse errors
-            html = `<pre class="markdown">${data.data}</pre>`;
-          }
-      } else if(data.type==='broadcast') {
-          let msg= data.text || data.message || data.data
-          this._pushSystem(msg);
-          return;
-        }
-         else {
-          html = data.text || data.message || data.data;
-        }
-    this.messages.push({ id: Date.now(), text: html, sender: 'bot', timestamp: new Date() });
-    this.renderMessages({ autoScroll: 'bottom' });
+    if (data.type === 'markdown' && data.data) {
+      const html = this._processMarkdown(data.data);
+      this.messages.push({ 
+        id: Date.now(), 
+        text: html, 
+        sender: 'bot', 
+        timestamp: new Date(),
+        isHtml: true
+      });
+      this.renderMessages({ autoScroll: 'bottom' });
+    } else if (data.type === 'broadcast') {
+      let msg = data.text || data.message || data.data;
+      this._pushSystem(msg);
+    } else if (data.type === 'image') {
+      const html = `<img src="${data.data}" alt="server image" style="max-width:200px;max-height:200px;">`;
+      this.messages.push({ 
+        id: Date.now(), 
+        text: html, 
+        sender: 'bot', 
+        timestamp: new Date() 
+      });
+      this.renderMessages({ autoScroll: 'bottom' });
+    } else if (data.data) {
+      const html = this._processMarkdown(data.data);
+      this.messages.push({ 
+        id: Date.now(), 
+        text: html, 
+        sender: 'bot', 
+        timestamp: new Date() 
+      });
+      this.renderMessages({ autoScroll: 'bottom' });
+    }
   }
+
+ _processMarkdown(raw, isStreaming = false) {
+  try {
+    // Check if we have incomplete HTML tags
+    const incompleteTagRegex = /<[^>]*$/;
+    
+    let processedRaw = raw;
+    let hasIncompleteTag = false;
+    
+    if (incompleteTagRegex.test(raw)) {
+      // Find the last complete part
+      const lastCompleteIndex = raw.lastIndexOf('>');
+      if (lastCompleteIndex !== -1) {
+        processedRaw = raw.substring(0, lastCompleteIndex + 1);
+        hasIncompleteTag = true;
+      } else {
+        // No complete tags at all, use everything up to the first <
+        const firstOpenIndex = raw.indexOf('<');
+        if (firstOpenIndex !== -1) {
+          processedRaw = raw.substring(0, firstOpenIndex);
+          hasIncompleteTag = true;
+        }
+      }
+    }
+    
+    // Also check for incomplete QSCACTION tags
+    const incompleteQscRegex = /\[\[QSCACTION[^\]]*$/;
+    if (incompleteQscRegex.test(processedRaw)) {
+      // Remove incomplete QSCACTION tag
+      processedRaw = processedRaw.replace(incompleteQscRegex, '');
+    }
+    
+    const hasJsonCodeBlock = processedRaw.includes('```json') || processedRaw.includes('```') || 
+                            (processedRaw.trim().startsWith('{') && processedRaw.trim().endsWith('}')) ||
+                            (processedRaw.trim().startsWith('[') && processedRaw.trim().endsWith(']'));
+    
+    if (isStreaming && hasJsonCodeBlock) {
+      let escaped = this._escapeHtml(processedRaw);
+     
+      return `<pre><code>${escaped}</code></pre>`;
+    }
+    
+    // escape HTML attributes safely
+    function escapeAttr(s) {
+      if (s == null) return "";
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    processedRaw = processedRaw.replace(
+      /\[\[QSCACTION\s+([^\]]+)\]\]/g,
+      function (_, attributes) {
+        
+        const paramMap = {};
+        
+        const attrRegex = /(\w+)=("([^"\\]*(\\.[^"\\]*)*)"|'([^'\\]*(\\.[^'\\]*)*)')/g;
+        let match;
+        
+        while ((match = attrRegex.exec(attributes)) !== null) {
+          const key = match[1].trim();
+          let value = '';
+          
+          if (match[2].startsWith('"')) {
+            value = match[3] || ''; 
+          } else {
+            value = match[5] || ''; 
+          }
+          
+          value = value.replace(/\\"/g, '"').replace(/\\'/g, "'");
+          paramMap[key] = value.trim();
+        }
+        
+        const type = escapeAttr(paramMap.type || '');
+        const label = escapeAttr(paramMap.label || '');
+        const prompt = escapeAttr(paramMap.prompt || '');
+        const uiPrompt = escapeAttr(paramMap.uiPrompt || '');
+        const url = escapeAttr(paramMap.url || '');
+        const style = escapeAttr(paramMap.style || '');
+                        
+        let buttonHtml = `<button class="action-button" data-action-type="${type}"`;
+        
+        // Add data attributes based on type
+        if (type === 'submit' || type === 'submit-silent') {
+          buttonHtml += ` data-action="${prompt}"`;
+          if (uiPrompt) {
+            buttonHtml += ` data-ui-prompt="${uiPrompt}"`;
+          }
+        } else if (type === 'url-open') {
+          buttonHtml += ` data-url="${url}"`;
+        }
+        
+        // Add style if provided
+        if (style) {
+          buttonHtml += ` style="${style}"`;
+        }
+        
+        buttonHtml += `>${label}</button>`;
+        
+        return buttonHtml;
+      }
+    );
+
+    // Parse with marked
+    const rawHtml = marked.parse(processedRaw);
+    const safeHtml = DOMPurify.sanitize(rawHtml);
+    
+    let finalHtml = `<div class="markdown">${safeHtml}</div>`;
+       
+    return finalHtml;
+
+  } catch (error) {
+    console.warn("Markdown parse error:", error);
+    // fallback for unexpected parse errors
+    return `<pre class="markdown">${this._escapeHtml(raw)}</pre>`;
+  }
+}
   scrollToBottom() {
     setTimeout(() => {
       const messagesDiv = this.shadowRoot.querySelector('.messages');
@@ -496,11 +856,13 @@ class QscChatbot extends HTMLElement {
   formatTime(date) {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
+
   _stripHtml(html) {
     const tmp = document.createElement('div');
     tmp.innerHTML = html;
     return tmp.textContent || tmp.innerText || '';
   }
+
   _getSessionId() {
     try {
       const key = 'qsc_session_id';
@@ -595,10 +957,14 @@ class QscChatbot extends HTMLElement {
       .map(s => ({ type: s.type, content: (s.content || '') }))
       .filter(s => s.content.trim().length > 0);
   }
+
   _splitAndRenderMultipleJsons() {
     const container = this.shadowRoot.querySelector('.messages');
     if (!container) return;
-
+     const streamingMessages = container.querySelectorAll('.message-streaming');
+      if (streamingMessages.length > 0) {
+        return; // Don't process JSON during streaming
+      }
     const codeNodes = Array.from(container.querySelectorAll('pre code'))
       .filter(code => {
         const cls = String(code.className || '').toLowerCase();
@@ -651,8 +1017,10 @@ class QscChatbot extends HTMLElement {
   _formatAndHighlightJson() {
     const container = this.shadowRoot.querySelector('.messages');
     if (!container) return;
-
-    // find candidate <pre><code> blocks
+     const streamingMessages = container.querySelectorAll('.message-streaming');
+  if (streamingMessages.length > 0) {
+    return; // Don't format JSON during streaming
+  }
     const codeEls = Array.from(container.querySelectorAll('pre code'))
       .filter(code => {
         const cls = String(code.className || '').toLowerCase();
@@ -717,57 +1085,56 @@ class QscChatbot extends HTMLElement {
   }
 
   _attachCodeCopyButtons() {
-  const container = this.shadowRoot.querySelector('.messages');
-  if (!container) return;
+    const container = this.shadowRoot.querySelector('.messages');
+    if (!container) return;
 
-  const pres = Array.from(container.querySelectorAll('.message-text .markdown pre'));
+    const pres = Array.from(container.querySelectorAll('.message-text .markdown pre'));
 
-  pres.forEach(pre => {
-    if (pre._qsc_copy_attached) return;
+    pres.forEach(pre => {
+      if (pre._qsc_copy_attached) return;
 
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'copy-code-btn';
-    btn.title = 'Copy code';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'copy-code-btn';
+      btn.title = 'Copy code';
 
-    btn.innerHTML = `
-       ${this._copySVG}
-    `;
+      btn.innerHTML = `
+          ${this._copySVG}
+      `;
 
-    btn.addEventListener('click', async (evt) => {
-      evt.stopPropagation();
-      try {
-        await this._copyCodeFromElement(pre);
-        btn.classList.add('copied');
-        const iconContainer = btn.querySelector('svg');
-        if (iconContainer) iconContainer.outerHTML = this._checkSVG;
+      btn.addEventListener('click', async (evt) => {
+        evt.stopPropagation();
+        try {
+          await this._copyCodeFromElement(pre);
+          btn.classList.add('copied');
+          const iconContainer = btn.querySelector('svg');
+          if (iconContainer) iconContainer.outerHTML = this._checkSVG;
 
-        setTimeout(() => {
-          btn.classList.remove('copied');
-          if (btn.querySelector('svg')) btn.querySelector('svg').outerHTML = this._copySVG;
-        }, 1200);
-      } catch (err) {
-          btn.innerHTML = `
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        `;
-        btn.classList.add('copy-failed');
-        setTimeout(() => {
-          btn.classList.remove('copy-failed');
-          btn.innerHTML = this._copySVG;
-        }, 1200);
-      }
+          setTimeout(() => {
+            btn.classList.remove('copied');
+            if (btn.querySelector('svg')) btn.querySelector('svg').outerHTML = this._copySVG;
+          }, 1200);
+        } catch (err) {
+            btn.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          `;
+          btn.classList.add('copy-failed');
+          setTimeout(() => {
+            btn.classList.remove('copy-failed');
+            btn.innerHTML = this._copySVG;
+          }, 1200);
+        }
+      });
+
+      pre.style.position = pre.style.position || 'relative';
+      pre.appendChild(btn);
+      pre._qsc_copy_attached = true;
     });
-
-    pre.style.position = pre.style.position || 'relative';
-    pre.appendChild(btn);
-    pre._qsc_copy_attached = true;
-  });
-}
-
+  }
 
   async _copyCodeFromElement(preEl) {
     const codeEl = preEl.querySelector('code') || preEl;
@@ -793,7 +1160,7 @@ class QscChatbot extends HTMLElement {
         }
       });
     }
-}
+  }
 
   _findIndexById(id) {
     return this.messages.findIndex(m => String(m.id) === String(id));
@@ -813,14 +1180,16 @@ class QscChatbot extends HTMLElement {
       </svg>
     `;
   }
+
   _escapeHtml(str = '') {
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    }
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+  
   async _handleSave(id) {
     const idx = this._findIndexById(id);
     if (idx === -1) return;
@@ -837,9 +1206,9 @@ class QscChatbot extends HTMLElement {
 
     this._removeMessagesAfterIndex(idx);
 
-    const loadingId = Date.now() + '-loading';
+     const botMsgId = 'bot-save-' + Date.now();
     this.messages.push({
-      id: loadingId,
+      id: botMsgId,
       text: `
         <div class="typing-indicator">
           <span></span><span></span><span></span>
@@ -847,7 +1216,8 @@ class QscChatbot extends HTMLElement {
       `,
       sender: 'bot',
       timestamp: new Date(),
-      isLoading: true
+      isLoading: true,
+      isStreaming: false
     });
 
     const originalEditId = id;
@@ -859,13 +1229,108 @@ class QscChatbot extends HTMLElement {
       const res = await fetch(this.restUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId, model: modelToSend })
+        body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId, model: modelToSend, sessionId: this.sessionId || localStorage.getItem('qsc_session_id') || this._getSessionId() })
       });
        if (!res.ok) {
           throw new Error(`HTTP error! Status: ${res.status}`);
         }
-      const data = await res.json();
-      this.handleRestBotResponse(data);
+      if (this.serverStreamingEnabled && res.body) {
+        
+        // Remove loading message and create streaming message
+        this.messages = this.messages.filter(m => m.id !== botMsgId);
+        const streamingBotMsgId = 'bot-stream-' + Date.now();
+        this.messages.push({
+          id: streamingBotMsgId,
+          text: '',
+          sender: 'bot',
+          timestamp: new Date(),
+          isLoading: false,
+          isStreaming: true
+        });
+        this.renderMessages({ autoScroll: 'bottom' });
+
+        // Get the reader
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              break;
+            }
+
+            const chunk = decoder.decode(value, { stream: true });
+            
+            // Split by newlines and process each line
+            const lines = chunk.split('\n');
+            
+            for (const line of lines) {
+              if (!line.trim()) continue;
+                            
+              try {
+                const json = JSON.parse(line);
+                
+                // Handle different message types
+                if (json.type === 'broadcast') {
+                  this._pushSystem(json.data);
+                } 
+                if (json.session_id) {
+                  this.sessionId = json.session_id;
+                  localStorage.setItem('qsc_session_id', this.sessionId);
+                } 
+                if (json.data !== undefined) {
+                  fullText += json.data;
+                  
+                  const index = this.messages.findIndex(m => m.id === streamingBotMsgId);
+                  if (index !== -1) {
+                    this.messages[index].text = fullText;
+                    this.messages[index].timestamp = new Date();
+                    
+                   
+                    this._debouncedStreamingUpdate(streamingBotMsgId, fullText, true, 50);
+                    
+                    if (this._isUserAtBottom()) {
+                      this._scrollToBottom();
+                    }
+                  }
+                }
+              } catch (e) {
+                console.warn('JSON parse error:', e);
+              }
+            }
+          }
+        } finally {
+            const index = this.messages.findIndex(m => m.id === streamingBotMsgId);
+            if (index !== -1) {
+              this.messages[index].isStreaming = false;
+              
+              if (fullText.trim() !== '') {
+                this._updateStreamingMessage(streamingBotMsgId, fullText, false);
+              } else {
+                // If still empty after stream ends, show a fallback message
+                const messageText = this.shadowRoot.querySelector(`.message-text[data-msg-id="${streamingBotMsgId}"]`);
+                if (messageText) {
+                  messageText.innerHTML = `<em>No response received</em>`;
+                }
+              }
+              
+              // Remove streaming styling
+              const bubble = this.shadowRoot.querySelector(`[data-msg-id="${streamingBotMsgId}"] .bubble.bot`);
+              if (bubble) {
+                bubble.classList.remove('message-streaming');
+              }
+            }
+          }
+      } else {
+       
+        const data = await res.json();
+        
+        // Remove loading message
+        this.messages = this.messages.filter(m => m.id !== botMsgId);
+        this.handleRestBotResponse(data);
+      }
     } catch (err) {
       this.messages = this.messages.filter(m => !m.isLoading);
       this._pushSystem(this.errMsg);
@@ -971,9 +1436,9 @@ class QscChatbot extends HTMLElement {
 
       this._removeMessagesAfterIndex(idx);
 
-      const loadingId = Date.now() + '-loading';
+       const botMsgId = 'bot-save-' + Date.now();
       this.messages.push({
-        id: loadingId,
+        id: botMsgId,
         text: `
           <div class="typing-indicator">
             <span></span><span></span><span></span>
@@ -994,13 +1459,108 @@ class QscChatbot extends HTMLElement {
         const res = await fetch(this.restUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId,model:modelToSend })
+          body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId,model:modelToSend, sessionId: this.sessionId || localStorage.getItem('qsc_session_id') || this._getSessionId() })
         });
          if (!res.ok) {
             throw new Error(`HTTP error! Status: ${res.status}`);
           }
+         if (this.serverStreamingEnabled && res.body) {
+        
+        // Remove loading message and create streaming message
+        this.messages = this.messages.filter(m => m.id !== botMsgId);
+        const streamingBotMsgId = 'bot-stream-' + Date.now();
+        this.messages.push({
+          id: streamingBotMsgId,
+          text: '',
+          sender: 'bot',
+          timestamp: new Date(),
+          isLoading: false,
+          isStreaming: true
+        });
+        this.renderMessages({ autoScroll: 'bottom' });
+
+        // Get the reader
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              break;
+            }
+
+            const chunk = decoder.decode(value, { stream: true });
+            
+            // Split by newlines and process each line
+            const lines = chunk.split('\n');
+            
+            for (const line of lines) {
+              if (!line.trim()) continue;
+                            
+              try {
+                const json = JSON.parse(line);
+                
+                // Handle different message types
+                if (json.type === 'broadcast') {
+                  this._pushSystem(json.data);
+                } 
+                if (json.session_id) {
+                  this.sessionId = json.session_id;
+                  localStorage.setItem('qsc_session_id', this.sessionId);
+                } 
+                if (json.data !== undefined) {
+                  fullText += json.data;
+                  
+                  const index = this.messages.findIndex(m => m.id === streamingBotMsgId);
+                  if (index !== -1) {
+                    this.messages[index].text = fullText;
+                    this.messages[index].timestamp = new Date();
+                    
+                   
+                    this._debouncedStreamingUpdate(streamingBotMsgId, fullText, true, 50);
+                    
+                    if (this._isUserAtBottom()) {
+                      this._scrollToBottom();
+                    }
+                  }
+                }
+              } catch (e) {
+                console.warn('JSON parse error:', e);
+              }
+            }
+          }
+        } finally {
+            const index = this.messages.findIndex(m => m.id === streamingBotMsgId);
+            if (index !== -1) {
+              this.messages[index].isStreaming = false;
+              
+              if (fullText.trim() !== '') {
+                this._updateStreamingMessage(streamingBotMsgId, fullText, false);
+              } else {
+                // If still empty after stream ends, show a fallback message
+                const messageText = this.shadowRoot.querySelector(`.message-text[data-msg-id="${streamingBotMsgId}"]`);
+                if (messageText) {
+                  messageText.innerHTML = `<em>No response received</em>`;
+                }
+              }
+              
+              // Remove streaming styling
+              const bubble = this.shadowRoot.querySelector(`[data-msg-id="${streamingBotMsgId}"] .bubble.bot`);
+              if (bubble) {
+                bubble.classList.remove('message-streaming');
+              }
+            }
+          }
+      } else {
+       
         const data = await res.json();
+        
+        // Remove loading message
+        this.messages = this.messages.filter(m => m.id !== botMsgId);
         this.handleRestBotResponse(data);
+      }
       } catch (err) {
         this.messages = this.messages.filter(m => !m.isLoading);
         this._pushSystem(this.errMsg);
@@ -1015,6 +1575,7 @@ class QscChatbot extends HTMLElement {
       }
     }
   }
+
   async _handleCopy(id) {
     const idx = this._findIndexById(id);
     if (idx === -1) return;
@@ -1093,19 +1654,55 @@ class QscChatbot extends HTMLElement {
     const { autoScroll = 'bottom', targetId = null } = opts;
     const messagesDiv = this.shadowRoot.querySelector('.messages');
     if (!messagesDiv) return;
-
+    
+    // Always re-render all messages
     messagesDiv.innerHTML = this.messages.map(m => {
       const isEditing = String(m.id) === String(this.editingId);
-      const messageContent = (m.sender === 'user' && isEditing)
-        ? `<textarea class="inline-edit inline-edit-textarea" data-msg-id="${m.id}" rows="3">${this._stripHtml(m.text)}</textarea>`
-        : (m.sender === 'user'
-            ? `<div class="message-text" data-msg-id="${m.id}">${
-                m.isHtml ? m.text : `<p>${this._escapeHtml(m.text)}</p>`
-              }</div>`
-            : `<div class="message-text" data-msg-id="${m.id}">${m.text}</div>`);
+      const isStreaming = m.isStreaming;
+      const streamingClass = isStreaming ? 'message-streaming' : '';
+      
+      let messageContent = '';
+      
+      if (m.sender === 'user' && isEditing) {
+        messageContent = `<textarea class="inline-edit inline-edit-textarea" data-msg-id="${m.id}" rows="3">${this._stripHtml(m.text)}</textarea>`;
+      } else if (m.sender === 'user') {
+        messageContent = `<div class="message-text" data-msg-id="${m.id}">${
+          m.isHtml ? m.text : `<p>${this._escapeHtml(m.text)}</p>`
+        }</div>`;
+      } else if (m.sender === 'bot') {
+        let displayText = '';
+        
+        if (m.isLoading) {
+          displayText = `
+            <div class="typing-indicator">
+              <span></span><span></span><span></span>
+            </div>
+          `;
+        } else if (m.isStreaming && (!m.text || m.text.trim() === '')) {
+          // Show typing indicator for empty streaming messages
+          displayText = `
+            <div class="typing-indicator">
+              <span></span><span></span><span></span>
+            </div>
+          `;
+        } else if (m.isStreaming && m.text) {
+          const html = this._processMarkdown(m.text,true);
+          displayText = html + `
+            <div class="streaming-indicator">
+              <span></span><span></span><span></span>
+            </div>
+          `;
+        } else if (m.text) {
+          displayText = this._processMarkdown(m.text,false);
+        }
+        
+        messageContent = `<div class="message-text ${isStreaming ? 'streaming-update' : ''}" data-msg-id="${m.id}">${displayText}</div>`;
+      } else {
+        messageContent = `<div class="message-text" data-msg-id="${m.id}">${m.text}</div>`;
+      }
 
       let actionsHtml = '';
-      const showCopy = (!m.isLoading) || Boolean(m.copied);
+      const showCopy = (!m.isLoading && !m.isStreaming) || Boolean(m.copied);
 
       if (m.sender === 'user' && isEditing) {
         actionsHtml = `
@@ -1122,7 +1719,7 @@ class QscChatbot extends HTMLElement {
         actionsHtml = `
           <div class="message-actions" data-msg-id="${m.id}">
             ${showCopy ? `<button class="message-action-btn copy-btn" data-msg-id="${m.id}" title="Copy" aria-label="Copy message">${this._copySVG}</button>` : ''}
-            ${m.sender === 'user' && !m.isLoading ? `<button class="message-action-btn edit-btn" data-msg-id="${m.id}" title="Edit" aria-label="Edit">
+            ${m.sender === 'user' && !m.isLoading && !m.isStreaming ? `<button class="message-action-btn edit-btn" data-msg-id="${m.id}" title="Edit" aria-label="Edit">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M12 20h9"></path>
                   <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
@@ -1134,7 +1731,7 @@ class QscChatbot extends HTMLElement {
 
       if (m.sender === 'system') {
         return `
-          <div class="message-row system">
+          <div class="message-row system" data-msg-id="${m.id}">
             <div class="bubble system">
               <div class="message-text" data-msg-id="${m.id}">${m.text}</div>
               <div class="timestamp">${this.formatTime(m.timestamp)}</div>
@@ -1144,9 +1741,10 @@ class QscChatbot extends HTMLElement {
       }
 
       if (m.sender === 'bot') {
+        const streamingClass = m.isStreaming ? 'message-streaming' : '';
         return `
-          <div class="message-row bot">
-            <div class="bubble bot">
+          <div class="message-row bot" data-msg-id="${m.id}">
+            <div class="bubble bot ${streamingClass}">
               ${messageContent}
               <div class="timestamp">${this.formatTime(m.timestamp)}</div>
             </div>
@@ -1156,7 +1754,7 @@ class QscChatbot extends HTMLElement {
       }
 
       return `
-        <div class="message-row user">
+        <div class="message-row user" data-msg-id="${m.id}">
           <div class="bubble user">
             ${messageContent}
             <div class="timestamp">${this.formatTime(m.timestamp)}</div>
@@ -1165,7 +1763,7 @@ class QscChatbot extends HTMLElement {
         </div>
       `;
     }).join('');
-
+    
     const container = this.shadowRoot.querySelector('.messages');
     if (container && !container._qsc_actions_bound) {
       container.addEventListener('click', (e) => {
@@ -1180,22 +1778,19 @@ class QscChatbot extends HTMLElement {
         
         const actionBtn = e.target.closest('.action-button');
         if (actionBtn) {
-          const type = e.target.getAttribute('data-action-type');
+          const type = actionBtn.getAttribute('data-action-type');
           switch (type) {
             case 'submit':
-              // Show uiPrompt to user and send prompt to server
               const action = actionBtn.getAttribute('data-action');
               const uiPrompt = actionBtn.getAttribute('data-ui-prompt');
-
               if (action && uiPrompt) {
                 this._sendActionPrompt(action, uiPrompt, false);
-              }else if (action) {
+              } else if (action) {
                 this._sendActionPrompt(action, null, false);
               }
               break;
               
             case 'submit-silent':
-              // Send prompt to server without showing anything to user
               const silentAction = actionBtn.getAttribute('data-action');
               if (silentAction) {
                 this._sendActionPrompt(silentAction, null, true);
@@ -1203,7 +1798,6 @@ class QscChatbot extends HTMLElement {
               break;
               
             case 'url-open':
-              // Open URL in new tab
               const url = actionBtn.getAttribute('data-url');
               if (url) {
                 window.open(url, '_blank');
@@ -1213,7 +1807,7 @@ class QscChatbot extends HTMLElement {
             default:
               console.warn('Unknown action type:', type);
           }
-        return;
+          return;
         }
 
         const editBtn = e.target.closest('.edit-btn');
@@ -1241,19 +1835,18 @@ class QscChatbot extends HTMLElement {
         ta._qsc_keyHandler = keyHandler;
       }
     }
+    
     this._splitAndRenderMultipleJsons(); 
     this._formatAndHighlightJson();   
     this._attachCodeCopyButtons();
 
-
     if (autoScroll === 'bottom') {
-    this.scrollToBottom();
-  } else if (autoScroll === 'intoView' && targetId) {
-    const el = this.shadowRoot.querySelector(`[data-msg-id="${targetId}"]`);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      this._scrollToBottom();
+    } else if (autoScroll === 'intoView' && targetId) {
+      const el = this.shadowRoot.querySelector(`[data-msg-id="${targetId}"]`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
   }
-  }
-
 
   render() {
     this.shadowRoot.innerHTML = `
@@ -1275,7 +1868,108 @@ class QscChatbot extends HTMLElement {
         
         font-family: 'Segoe UI', system-ui, sans-serif;
       }
+     .message-streaming {
+        position: relative;
+        animation: subtle-glow 2s ease-in-out infinite;
+      }
 
+      @keyframes subtle-glow {
+        0%, 100% { box-shadow: 0 0 10px rgba(0, 120, 212, 0.1); }
+        50% { box-shadow: 0 0 20px rgba(0, 120, 212, 0.2); }
+      }
+        
+      @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0; }
+      }
+      .streaming-indicator {
+        display: inline-flex !important;
+        margin-left: 8px !important;
+        vertical-align: middle !important;
+        background: rgba(0, 120, 212, 0.1);
+        border-radius: 12px;
+        padding: 4px 8px;
+        height: 20px;
+        align-items: center;
+      }
+
+      .streaming-indicator span {
+        width: 4px;
+        height: 4px;
+        margin: 0 1px;
+        background-color: var(--primary);
+        border-radius: 50%;
+        animation: bounce 1.4s infinite ease-in-out both;
+        opacity: 0.7;
+      }
+
+      .streaming-indicator span:nth-child(1) { animation-delay: -0.32s; }
+      .streaming-indicator span:nth-child(2) { animation-delay: -0.16s; }
+      .streaming-indicator span:nth-child(3) { animation-delay: 0s; }
+
+      .typing-indicator.streaming {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        color: var(--primary);
+        font-size: 12px;
+      }
+        
+        .streaming-dots {
+          display: flex;
+          gap: 2px;
+        }
+        
+        .streaming-dots span {
+          width: 4px;
+          height: 4px;
+          background-color: var(--primary);
+          border-radius: 50%;
+          animation: streaming-bounce 1.4s infinite ease-in-out both;
+        }
+        
+        .streaming-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .streaming-dots span:nth-child(2) { animation-delay: -0.16s; }
+        
+        @keyframes streaming-bounce {
+          0%, 80%, 100% { 
+            transform: scale(0);
+            opacity: 0.5;
+          }
+          40% { 
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+           .messages::-webkit-scrollbar {
+          width: 8px;
+        }
+        
+        .messages::-webkit-scrollbar-track {
+          background: var(--background-alt);
+        }
+        
+        .messages::-webkit-scrollbar-thumb {
+          background: rgba(0, 0, 0, 0.1);
+          border-radius: 4px;
+        }
+        
+        .messages::-webkit-scrollbar-thumb:hover {
+          background: rgba(0, 0, 0, 0.2);
+        }
+           .message-text {
+          transition: all 0.2s ease;
+        }
+        
+        .message-text.streaming-update {
+          animation: subtle-pulse 0.3s ease;
+        }
+        
+        @keyframes subtle-pulse {
+          0% { opacity: 0.9; }
+          50% { opacity: 1; }
+          100% { opacity: 0.9; }
+        }
       @keyframes smoothJump {
         0%, 100% {
           transform: translateY(0);
@@ -1315,8 +2009,8 @@ class QscChatbot extends HTMLElement {
         margin: 4px; 
         white-space: nowrap;
       }
-      .markdown table td img {
-        width: 180px;
+      .markdown img {
+        width: 220px !important;
         height: auto;
         object-fit: cover;
         border: 1px solid #e6eef9;
@@ -1330,6 +2024,9 @@ class QscChatbot extends HTMLElement {
         padding: 12px;
         border: none;
       }
+      .markdown ul li::marker {
+          content: none;
+        }
       .markdown table td:has(strong) {
         border: 1px solid rgba(0, 0, 0, 0.04);
       }
@@ -1404,26 +2101,7 @@ class QscChatbot extends HTMLElement {
       .model-toggle-btn.model-selected {
         background-color: rgb(0, 120, 212) !important;
       }
-      .floating-new-chat {
-        position: absolute;
-        top: 12px;
-        right: 80px;
-        z-index: 100;
-      }
-
-      .floating-new-chat .new-chat-btn {
-        background: rgba(255,255,255,0.95);
-        color: var(--primary);
-        border: 1.5px solid var(--primary);
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        margin-right: 0;
-      }
-
-      .floating-new-chat .new-chat-btn:hover {
-        background: var(--primary);
-        color: white;
-        box-shadow: 0 4px 12px rgba(0,120,212,0.3);
-      }
+      
       .model-toggle-btn {
         width: 30px;
         height: 32px;
@@ -1497,6 +2175,7 @@ class QscChatbot extends HTMLElement {
       .json-number { color: #0086b3; }    
       .json-boolean { color: #795da3; }   
       .json-punctuation { color: #333; }
+
       .typing-indicator span {
         display: inline-block;
         width: 5px;
@@ -2208,10 +2887,10 @@ class QscChatbot extends HTMLElement {
               const response = await fetch(this.restUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: this.restClientId, type: 'image', data: base64, filename: file.name,session_id: sessionId,model :modelToSend })
+                body: JSON.stringify({ id: `rest-${Date.now()}`, type: 'image', data: base64, filename: file.name,session_id: sessionId,model :modelToSend })
               });
-               if (!res.ok) {
-                throw new Error(`HTTP error! Status: ${res.status}`);
+               if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
               }
               const data = await response.json();  
               this.handleRestBotResponse(data);
@@ -2251,8 +2930,8 @@ class QscChatbot extends HTMLElement {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: Date.now(), type: 'markdown', data: content, filename: file.name, session_id: sessionId , model:modelToSend})
               });
-               if (!res.ok) {
-                throw new Error(`HTTP error! Status: ${res.status}`);
+               if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
               }
               const data = await response.json();
               this.handleRestBotResponse(data);

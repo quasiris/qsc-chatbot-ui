@@ -1,6 +1,6 @@
 {
   "name": "@quasiris/qsc-chatbot-ui",
-  "version": "1.5.9",
+  "version": "1.6.0",
   "description": "A plugin that injects a Chatbot UI with WS/REST support",
   "main": "lib/index.js",
   "unpkg": "qsc-chatbot.js",
