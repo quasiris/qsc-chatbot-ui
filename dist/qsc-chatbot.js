@@ -1423,7 +1423,6 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         this.receivedModels = [];      
         this.selectedModel = null;
         this.showModelMenu = false;
-        this._isStreaming = false;
         this.serverStreamingEnabled = false;
         this._streamingUpdateTimeouts = {};
 
@@ -1458,38 +1457,37 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         }
       }
 
-      _debouncedStreamingUpdate(id, rawMarkdown, streaming = true, delay = 50) {
+      _debouncedStreamingUpdate(id, rawMarkdown, streaming = true, delay = 16) {
         if (this._streamingUpdateTimeouts[id]) {
           clearTimeout(this._streamingUpdateTimeouts[id]);
         }
         
         this._streamingUpdateTimeouts[id] = setTimeout(() => {
-          this._updateStreamingMessage(id, rawMarkdown, streaming);
-          delete this._streamingUpdateTimeouts[id];
+          requestAnimationFrame(() => {
+            this._updateStreamingMessage(id, rawMarkdown, streaming);
+          });
         }, delay);
       }
 
-      _updateStreamingMessage(id, rawMarkdown, isStreaming = true) {
+       _updateStreamingMessage(id, rawMarkdown, isStreaming = true) {
+        const messageRow = this.shadowRoot.querySelector(`[data-msg-id="${id}"]`);
+        if (!messageRow) return;
 
-        const messageText = this.shadowRoot.querySelector(`.message-text[data-msg-id="${id}"]`);
+        const messageText = messageRow.querySelector('.message-text');
+        const timestampContainer = messageRow.querySelector('.timestamp-container');
         
-        if (!messageText) {
-          console.warn('Message text element not found for ID:', id);
-          return;
-        }
+        if (!messageText) return;
 
         try {
-          
-          if (!rawMarkdown || rawMarkdown.trim() === '') {
+          const messageIndex = this.messages.findIndex(m => m.id === id);
+          if (messageIndex !== -1) {
+            this.messages[messageIndex].text = rawMarkdown;
+          }
 
+          if (!rawMarkdown || rawMarkdown.trim() === '') {
             if (!messageText.querySelector('.typing-indicator')) {
-              messageText.innerHTML = `
-            <div class="typing-indicator">
-              <span></span><span></span><span></span>
-            </div>
-          `;
+              messageText.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
             }
-            
           } else {
             const typingIndicator = messageText.querySelector('.typing-indicator');
             if (typingIndicator) {
@@ -1498,36 +1496,37 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
             
             const html = this._processMarkdown(rawMarkdown, isStreaming);
             
-            let finalHtml = html;
-            if (isStreaming) {
-               finalHtml = html + `
-              <div class="streaming-indicator">
-                <span></span><span></span><span></span>
-              </div>
-            `;
+            const currentContent = messageText.innerHTML;
+            if (currentContent !== html || isStreaming) {
+              messageText.innerHTML = html;
             }
             
-            messageText.innerHTML = finalHtml;
-                    
-            this._splitAndRenderMultipleJsons();
-            this._formatAndHighlightJson();
-            this._attachCodeCopyButtons();
-            
+            if (!isStreaming) {
+              setTimeout(() => {
+                this._splitAndRenderMultipleJsons();
+                this._formatAndHighlightJson();
+                this._attachCodeCopyButtons(id);
+              }, 50);
+            }
+          }
+
+          if (timestampContainer) {
+            if (isStreaming) {
+              if (!timestampContainer.querySelector('.streaming-indicator') && !messageText.querySelector('.typing-indicator')) {
+                timestampContainer.innerHTML = '<div class="streaming-indicator"><span></span><span></span><span></span></div>';
+              }
+            } else {
+              const message = this.messages.find(m => m.id === id);
+              if (message) {
+                timestampContainer.innerHTML = `<div class="timestamp">${this.formatTime(message.timestamp)}</div>`;
+              }
+            }
           }
         } catch (e) {
           console.warn("Markdown parse error:", e);
-          let finalHtml = `<pre>${this._escapeHtml(rawMarkdown)}</pre>`;
-            if (isStreaming) {
-             finalHtml += `
-            <div class="streaming-indicator" style="display:inline-flex; margin-left:8px;">
-              <span></span><span></span><span></span>
-            </div>
-          `;
-            }
-            messageText.innerHTML = finalHtml;
+          messageText.innerHTML = `<pre>${this._escapeHtml(rawMarkdown)}</pre>`;
         }
       }
-
       _startNewChat() {
         this.sessionId = null;
         try {
@@ -1745,7 +1744,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                         this.messages[index].text = fullText;
                         this.messages[index].timestamp = new Date();
                         
-                        this._debouncedStreamingUpdate(streamingBotMsgId, fullText, true, 50);
+                        this._debouncedStreamingUpdate(streamingBotMsgId, fullText, true, 16);
                         
                         if (this._isUserAtBottom()) {
                           this._scrollToBottom();
@@ -1966,7 +1965,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                         this.messages[index].timestamp = new Date();
                         
                        
-                        this._debouncedStreamingUpdate(streamingBotMsgId, fullText, true, 50);
+                        this._debouncedStreamingUpdate(streamingBotMsgId, fullText, true, 16);
                         
                         if (this._isUserAtBottom()) {
                           this._scrollToBottom();
@@ -2113,126 +2112,134 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
         }
       }
 
-     _processMarkdown(raw, isStreaming = false) {
-      try {
-        // Check if we have incomplete HTML tags
-        const incompleteTagRegex = /<[^>]*$/;
-        
-        let processedRaw = raw;
-        let hasIncompleteTag = false;
-        
-        if (incompleteTagRegex.test(raw)) {
-          // Find the last complete part
-          const lastCompleteIndex = raw.lastIndexOf('>');
-          if (lastCompleteIndex !== -1) {
-            processedRaw = raw.substring(0, lastCompleteIndex + 1);
-            hasIncompleteTag = true;
-          } else {
-            // No complete tags at all, use everything up to the first <
-            const firstOpenIndex = raw.indexOf('<');
-            if (firstOpenIndex !== -1) {
-              processedRaw = raw.substring(0, firstOpenIndex);
+      _processMarkdown(raw, isStreaming = false) {
+        try {
+          // Check if we have incomplete HTML tags
+          const incompleteTagRegex = /<[^>]*$/;
+          
+          let processedRaw = raw;
+          let hasIncompleteTag = false;
+          
+          if (incompleteTagRegex.test(raw)) {
+            // Find the last complete part
+            const lastCompleteIndex = raw.lastIndexOf('>');
+            if (lastCompleteIndex !== -1) {
+              processedRaw = raw.substring(0, lastCompleteIndex + 1);
               hasIncompleteTag = true;
+            } else {
+              // No complete tags at all, use everything up to the first 
+              const firstOpenIndex = raw.indexOf('<');
+              if (firstOpenIndex !== -1) {
+                processedRaw = raw.substring(0, firstOpenIndex);
+                hasIncompleteTag = true;
+              }
             }
           }
-        }
-        
-        // Also check for incomplete QSCACTION tags
-        const incompleteQscRegex = /\[\[QSCACTION[^\]]*$/;
-        if (incompleteQscRegex.test(processedRaw)) {
-          // Remove incomplete QSCACTION tag
-          processedRaw = processedRaw.replace(incompleteQscRegex, '');
-        }
-        
-        const hasJsonCodeBlock = processedRaw.includes('```json') || processedRaw.includes('```') || 
-                                (processedRaw.trim().startsWith('{') && processedRaw.trim().endsWith('}')) ||
-                                (processedRaw.trim().startsWith('[') && processedRaw.trim().endsWith(']'));
-        
-        if (isStreaming && hasJsonCodeBlock) {
-          let escaped = this._escapeHtml(processedRaw);
+          
+          // Check for incomplete QSCACTION tags
+          const incompleteQscRegex = /\[\[QSCACTION[^\]]*$/;
+          if (incompleteQscRegex.test(processedRaw)) {
+            // Remove incomplete QSCACTION tag
+            processedRaw = processedRaw.replace(incompleteQscRegex, '');
+          }
+          
+          // Check for incomplete markdown images 
          
-          return `<pre><code>${escaped}</code></pre>`;
-        }
-        
-        // escape HTML attributes safely
-        function escapeAttr(s) {
-          if (s == null) return "";
-          return String(s)
-            .replace(/&/g, "&amp;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;");
-        }
-
-        processedRaw = processedRaw.replace(
-          /\[\[QSCACTION\s+([^\]]+)\]\]/g,
-          function (_, attributes) {
-            
-            const paramMap = {};
-            
-            const attrRegex = /(\w+)=("([^"\\]*(\\.[^"\\]*)*)"|'([^'\\]*(\\.[^'\\]*)*)')/g;
-            let match;
-            
-            while ((match = attrRegex.exec(attributes)) !== null) {
-              const key = match[1].trim();
-              let value = '';
-              
-              if (match[2].startsWith('"')) {
-                value = match[3] || ''; 
-              } else {
-                value = match[5] || ''; 
-              }
-              
-              value = value.replace(/\\"/g, '"').replace(/\\'/g, "'");
-              paramMap[key] = value.trim();
-            }
-            
-            const type = escapeAttr(paramMap.type || '');
-            const label = escapeAttr(paramMap.label || '');
-            const prompt = escapeAttr(paramMap.prompt || '');
-            const uiPrompt = escapeAttr(paramMap.uiPrompt || '');
-            const url = escapeAttr(paramMap.url || '');
-            const style = escapeAttr(paramMap.style || '');
-                            
-            let buttonHtml = `<button class="action-button" data-action-type="${type}"`;
-            
-            // Add data attributes based on type
-            if (type === 'submit' || type === 'submit-silent') {
-              buttonHtml += ` data-action="${prompt}"`;
-              if (uiPrompt) {
-                buttonHtml += ` data-ui-prompt="${uiPrompt}"`;
-              }
-            } else if (type === 'url-open') {
-              buttonHtml += ` data-url="${url}"`;
-            }
-            
-            // Add style if provided
-            if (style) {
-              buttonHtml += ` style="${style}"`;
-            }
-            
-            buttonHtml += `>${label}</button>`;
-            
-            return buttonHtml;
+          const incompleteImageRegex = /!\[(?:[^\]]*(?:\][^)]*)?)?$/;
+          
+          if (incompleteImageRegex.test(processedRaw)) {
+            processedRaw = processedRaw.replace(incompleteImageRegex, '');
           }
-        );
+          
+          const hasJsonCodeBlock = processedRaw.includes('```json') || processedRaw.includes('```') || 
+                                  (processedRaw.trim().startsWith('{') && processedRaw.trim().endsWith('}')) ||
+                                  (processedRaw.trim().startsWith('[') && processedRaw.trim().endsWith(']'));
+          
+          if (isStreaming && hasJsonCodeBlock) {
+            let escaped = this._escapeHtml(processedRaw);
+          
+            return `<pre><code>${escaped}</code></pre>`;
+          }
+          
+          function escapeAttr(s) {
+            if (s == null) return "";
+            return String(s)
+              .replace(/&/g, "&amp;")
+              .replace(/"/g, "&quot;")
+              .replace(/'/g, "&#39;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;");
+          }
 
-        // Parse with marked
-        const rawHtml = d.parse(processedRaw);
-        const safeHtml = DOMPurify.sanitize(rawHtml);
-        
-        let finalHtml = `<div class="markdown">${safeHtml}</div>`;
-           
-        return finalHtml;
+          processedRaw = processedRaw.replace(
+            /\[\[QSCACTION\s+([^\]]+)\]\]/g,
+            function (_, attributes) {
+              
+              const paramMap = {};
+              
+              const attrRegex = /(\w+)=("([^"\\]*(\\.[^"\\]*)*)"|'([^'\\]*(\\.[^'\\]*)*)')/g;
+              let match;
+              
+              while ((match = attrRegex.exec(attributes)) !== null) {
+                const key = match[1].trim();
+                let value = '';
+                
+                if (match[2].startsWith('"')) {
+                  value = match[3] || ''; 
+                } else {
+                  value = match[5] || ''; 
+                }
+                
+                value = value.replace(/\\"/g, '"').replace(/\\'/g, "'");
+                paramMap[key] = value.trim();
+              }
+              
+              const type = escapeAttr(paramMap.type || '');
+              const label = escapeAttr(paramMap.label || '');
+              const prompt = escapeAttr(paramMap.prompt || '');
+              const uiPrompt = escapeAttr(paramMap.uiPrompt || '');
+              const url = escapeAttr(paramMap.url || '');
+              const style = escapeAttr(paramMap.style || '');
+                              
+              let buttonHtml = `<button class="action-button" data-action-type="${type}"`;
+              
+              // Add data attributes based on type
+              if (type === 'submit' || type === 'submit-silent') {
+                buttonHtml += ` data-action="${prompt}"`;
+                if (uiPrompt) {
+                  buttonHtml += ` data-ui-prompt="${uiPrompt}"`;
+                }
+              } else if (type === 'url-open') {
+                buttonHtml += ` data-url="${url}"`;
+              }
+              
+              // Add style if provided
+              if (style) {
+                buttonHtml += ` style="${style}"`;
+              }
+              
+              buttonHtml += `>${label}</button>`;
+              
+              return buttonHtml;
+            }
+          );
 
-      } catch (error) {
-        console.warn("Markdown parse error:", error);
-        // fallback for unexpected parse errors
-        return `<pre class="markdown">${this._escapeHtml(raw)}</pre>`;
+          // Parse with marked
+          const rawHtml = d.parse(processedRaw);
+          const safeHtml = DOMPurify.sanitize(rawHtml);
+          
+          let finalHtml = `<div class="markdown">${safeHtml}</div>`;
+            
+          return finalHtml;
+
+        } catch (error) {
+          console.warn("Markdown parse error:", error);
+          // fallback for unexpected parse errors
+          return `<pre class="markdown">${this._escapeHtml(raw)}</pre>`;
+        }
       }
-    }
-      scrollToBottom() {
+
+      scrollToBottom() { 
         setTimeout(() => {
           const messagesDiv = this.shadowRoot.querySelector('.messages');
           if (messagesDiv) messagesDiv.scrollTop = messagesDiv.scrollHeight;
@@ -2693,7 +2700,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                         this.messages[index].timestamp = new Date();
                         
                        
-                        this._debouncedStreamingUpdate(streamingBotMsgId, fullText, true, 50);
+                        this._debouncedStreamingUpdate(streamingBotMsgId, fullText, true, 16);
                         
                         if (this._isUserAtBottom()) {
                           this._scrollToBottom();
@@ -2923,7 +2930,7 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
                         this.messages[index].timestamp = new Date();
                         
                        
-                        this._debouncedStreamingUpdate(streamingBotMsgId, fullText, true, 50);
+                        this._debouncedStreamingUpdate(streamingBotMsgId, fullText, true, 16);
                         
                         if (this._isUserAtBottom()) {
                           this._scrollToBottom();
@@ -3149,7 +3156,12 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
           <div class="message-row bot" data-msg-id="${m.id}">
             <div class="bubble bot ${streamingClass}">
               ${messageContent}
-              <div class="timestamp">${this.formatTime(m.timestamp)}</div>
+              <div class="timestamp-container">
+                ${m.isStreaming ? 
+                  '<div class="streaming-indicator"><span></span><span></span><span></span></div>' : 
+                  `<div class="timestamp">${this.formatTime(m.timestamp)}</div>`
+                }
+              </div>
             </div>
             ${actionsHtml}
           </div>
@@ -3579,6 +3591,13 @@ Please report this to https://github.com/markedjs/marked.`,e){let r="<p>An error
       .json-boolean { color: #795da3; }   
       .json-punctuation { color: #333; }
 
+      .timestamp-container {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        margin-top: 6px;
+      }
+        
       .typing-indicator span {
         display: inline-block;
         width: 5px;
