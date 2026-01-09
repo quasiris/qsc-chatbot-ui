@@ -21,6 +21,8 @@ class QscChatbot extends HTMLElement {
     this.showModelMenu = false;
     this.serverStreamingEnabled = false;
     this._streamingUpdateTimeouts = {};
+     this.securityToken = null;
+  this.showSettingsPopup = false;
 
      this._copySVG = `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
@@ -123,6 +125,40 @@ class QscChatbot extends HTMLElement {
       messageText.innerHTML = `<pre>${this._escapeHtml(rawMarkdown)}</pre>`;
     }
   }
+  _handleSaveToken() {
+    const tokenInput = this.shadowRoot.querySelector('#security-token-input');
+    if (!tokenInput) return;
+    
+    const newToken = tokenInput.value.trim();
+    
+    try {
+      if (newToken) {
+        this.securityToken = newToken;
+        localStorage.setItem('qsc_chatbot_token', newToken);
+      } else {
+        this._handleRemoveToken();
+        return;
+      }
+    } catch (e) {
+      console.error('Failed to save token:', e);
+    }
+    
+    this.showSettingsPopup = false;
+    
+    this._startNewChat();
+  }
+
+  _handleRemoveToken() {
+    this.securityToken = null;
+    try {
+      localStorage.removeItem('qsc_chatbot_token');
+    } catch (e) {
+      // ignore
+    }
+    
+    this.showSettingsPopup = false;
+    this._startNewChat();
+  }
   _startNewChat() {
     this.sessionId = null;
     try {
@@ -143,7 +179,11 @@ class QscChatbot extends HTMLElement {
     this.errMsg=this.getAttribute('error-msg') || 'Connection to the server failed';
     this.attachBtn=this.getAttribute('attach-btn') === 'true';
     this.restUrl = this.getAttribute('rest-url') || 'no-rest-url-provided';
-    
+    try {
+      this.securityToken = localStorage.getItem('qsc_chatbot_token');
+    } catch (e) {
+      this.securityToken = null;
+    }
     this.render();
   }
 
@@ -171,9 +211,17 @@ class QscChatbot extends HTMLElement {
     };
 
     try {
+
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+    
+      if (this.securityToken) {
+        headers['x-qsc-token'] = this.securityToken;
+      }
       const res = await fetch(this.restUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
         body: JSON.stringify(payload)
       });
       if (!res.ok) {
@@ -275,9 +323,16 @@ class QscChatbot extends HTMLElement {
     this.renderMessages({ autoScroll: 'bottom' });
     
     try {
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+    
+      if (this.securityToken) {
+        headers['x-qsc-token'] = this.securityToken;
+      }
       const res = await fetch(this.restUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
         body: JSON.stringify({ 
           type: 'message', 
           text: promptText,
@@ -488,9 +543,16 @@ class QscChatbot extends HTMLElement {
     const sessionId = localStorage.getItem('qsc_session_id') || this.sessionId || this._getSessionId();
 
     try {
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+    
+      if (this.securityToken) {
+        headers['x-qsc-token'] = this.securityToken;
+      }
       const res = await fetch(this.restUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
         body: JSON.stringify({ 
           type: 'message', 
           text: text, 
@@ -1233,9 +1295,16 @@ class QscChatbot extends HTMLElement {
     const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
 
     try {
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (this.securityToken) {
+        headers['x-qsc-token'] = this.securityToken;
+      }
       const res = await fetch(this.restUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
         body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId, model: modelToSend, sessionId: this.sessionId || localStorage.getItem('qsc_session_id') || this._getSessionId() })
       });
        if (!res.ok) {
@@ -1463,9 +1532,16 @@ class QscChatbot extends HTMLElement {
       const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
 
       try {
+        const headers = {
+          'Content-Type': 'application/json',
+        };
+        
+        if (this.securityToken) {
+          headers['x-qsc-token'] = this.securityToken;
+        }
         const res = await fetch(this.restUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: headers,
           body: JSON.stringify({ type: 'message', text: newVal, id: `rest-${Date.now()}`, editedFrom: originalEditId,model:modelToSend, sessionId: this.sessionId || localStorage.getItem('qsc_session_id') || this._getSessionId() })
         });
          if (!res.ok) {
@@ -1893,6 +1969,95 @@ class QscChatbot extends HTMLElement {
       @keyframes blink {
         0%, 100% { opacity: 1; }
         50% { opacity: 0; }
+      }
+         .settings-btn {
+        background: transparent;
+        border: none;
+        color: white;
+        cursor: pointer;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        transition: background 0.2s;
+        margin-right: 8px;
+      }
+      
+      .settings-btn:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
+      
+      .settings-popup {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: var(--background);
+        border: 1px solid rgba(0,0,0,0.1);
+        border-radius: var(--border-radius);
+        box-shadow: var(--shadow);
+        padding: 20px;
+        z-index: 2147483649 !important;
+        width: 320px;
+        max-width: 90vw;
+      }
+      
+      .settings-popup-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 2147483648 !important;
+      }
+      
+      .settings-popup h3 {
+        margin: 0 0 15px 0;
+        color: var(--text-primary);
+      }
+      
+      .settings-popup input {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid rgba(0,0,0,0.1);
+        border-radius: 6px;
+        font-size: 14px;
+        margin-bottom: 15px;
+        box-sizing: border-box;
+      }
+      
+      .settings-popup-buttons {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+      }
+      
+      .settings-popup button {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+      
+      .settings-popup .save-btn {
+        background: var(--primary);
+        color: white;
+      }
+      
+      .settings-popup .cancel-btn {
+        background: var(--background-alt);
+        color: var(--text-secondary);
+      }
+      
+      .settings-popup .remove-btn {
+        background: #ff4444;
+        color: white;
+        margin-right: auto;
       }
       .streaming-indicator {
         display: inline-flex !important;
@@ -2757,6 +2922,9 @@ class QscChatbot extends HTMLElement {
               <div class="header-title">${this.headerTitle}</div>
               
               <div class="header-controls">
+              <button class="settings-btn" title="Settings">
+                ⚙️
+              </button>
                 <button class="new-chat-btn" title="Start new chat">
                   <span class="new-chat-icon"></span>
                   <span>New</span>
@@ -2793,6 +2961,26 @@ class QscChatbot extends HTMLElement {
               </button>
             </div>
           </div>
+          ${this.showSettingsPopup ? `
+          <div class="settings-popup-overlay"></div>
+          <div class="settings-popup">
+            <h3>Security Token</h3>
+            <input 
+              type="password" 
+              id="security-token-input" 
+              placeholder="Enter your security token"
+              value="${this.securityToken || ''}"
+            >
+            <div class="settings-popup-buttons">
+              ${this.securityToken ? `
+                <button class="remove-btn" id="remove-token-btn">Remove Token</button>
+              ` : ''}
+              <button class="cancel-btn" id="cancel-settings-btn">Cancel</button>
+              <button class="save-btn" id="save-token-btn">Save</button>
+            </div>
+          </div>
+        ` : ''}
+
         ` : `
           <button class="toggle-btn">
             ${
@@ -2806,8 +2994,63 @@ class QscChatbot extends HTMLElement {
       </div>
     `;
     this.renderMessages();
+    const settingsBtn = this.shadowRoot.querySelector('.settings-btn');
+    if (settingsBtn) {
+      settingsBtn.addEventListener('click', () => {
+        this.showSettingsPopup = true;
+        this.render();
+        
+        setTimeout(() => {
+          const tokenInput = this.shadowRoot.querySelector('#security-token-input');
+          if (tokenInput) tokenInput.focus();
+        }, 10);
+      });
+    }
     
-    // Add event listeners for new chat buttons
+    if (this.showSettingsPopup) {
+      const cancelBtn = this.shadowRoot.querySelector('#cancel-settings-btn');
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+          this.showSettingsPopup = false;
+          this.render();
+        });
+      }
+      
+      const saveBtn = this.shadowRoot.querySelector('#save-token-btn');
+      if (saveBtn) {
+        saveBtn.addEventListener('click', () => {
+          this._handleSaveToken();
+        });
+      }
+      
+      const removeBtn = this.shadowRoot.querySelector('#remove-token-btn');
+      if (removeBtn) {
+        removeBtn.addEventListener('click', () => {
+          this._handleRemoveToken();
+        });
+      }
+      
+      const tokenInput = this.shadowRoot.querySelector('#security-token-input');
+      if (tokenInput) {
+        tokenInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            this._handleSaveToken();
+          } else if (e.key === 'Escape') {
+            this.showSettingsPopup = false;
+            this.render();
+          }
+        });
+      }
+      
+      // Close popup when clicking overlay
+      const overlay = this.shadowRoot.querySelector('.settings-popup-overlay');
+      if (overlay) {
+        overlay.addEventListener('click', () => {
+          this.showSettingsPopup = false;
+          this.render();
+        });
+      }
+    }
     const newChatButtons = this.shadowRoot.querySelectorAll('.new-chat-btn');
     newChatButtons.forEach(button => {
       button.addEventListener('click', (e) => {
@@ -2903,9 +3146,16 @@ class QscChatbot extends HTMLElement {
             const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
 
             try {
+              const headers = {
+                'Content-Type': 'application/json',
+              };
+              
+              if (this.securityToken) {
+                headers['x-qsc-token'] = this.securityToken;
+              }
               const response = await fetch(this.restUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: headers,
                 body: JSON.stringify({ id: `rest-${Date.now()}`, type: 'image', data: base64, filename: file.name,session_id: sessionId,model :modelToSend })
               });
                if (!response.ok) {
@@ -2944,9 +3194,16 @@ class QscChatbot extends HTMLElement {
             const modelToSend = this.selectedModel ? (this.selectedModel.model || this.selectedModel.name) : undefined;
 
             try {
+              const headers = {
+                'Content-Type': 'application/json',
+              };
+              
+              if (this.securityToken) {
+                headers['x-qsc-token'] = this.securityToken;
+              }
               const response = await fetch(this.restUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: headers,
                 body: JSON.stringify({ id: Date.now(), type: 'markdown', data: content, filename: file.name, session_id: sessionId , model:modelToSend})
               });
                if (!response.ok) {
