@@ -1,9 +1,10 @@
 {
   "name": "@quasiris/qsc-chatbot-ui",
-  "version": "1.6.2",
-  "description": "A plugin that injects a Chatbot UI with WS/REST support",
+  "version": "1.6.3",
+  "description": "A web component that injects a Chatbot UI with REST support",
   "main": "lib/index.js",
-  "unpkg": "qsc-chatbot.js",
+   "browser": "dist/qsc-chatbot.js",
+  "unpkg": "dist/qsc-chatbot.js",
   "module": "lib/index.esm.js",
   "scripts": {
     "build": "babel src --out-dir lib --extensions \".js,.jsx,.ts,.tsx\" --copy-files && rollup -c",
@@ -12,9 +13,16 @@
   "publishConfig": {
     "access": "public"
   },
+  "exports": {
+    ".": {
+      "import": "./dist/qsc-chatbot.js",
+      "require": "./lib/index.js"
+    },
+    "./dist/qsc-chatbot.js": "./dist/qsc-chatbot.js"
+  },
   "files": [
     "lib",
-    "dist/qsc-chatbot.js"
+    "dist"
   ],
   "keywords": [
     "Quasiris",

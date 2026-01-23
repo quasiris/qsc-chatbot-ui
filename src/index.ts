@@ -33,12 +33,14 @@ export default function pluginChatbotUI(
         postBodyTags: [
           {
             tagName: 'script',
-            innerHTML: `window.__CHATBOT_PLUGIN_OPTIONS__ = ${JSON.stringify(
-              pluginOptions,
-            )};`,
+            attributes: {
+              type: 'application/json',
+              id: 'qsc-chatbot-plugin-options'
+            },
+            innerHTML: JSON.stringify(pluginOptions)
           },
         ],
       };
-    },
+    }
   };
 }
